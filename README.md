@@ -6,10 +6,10 @@ CuliFeed is an AI-powered content curation system that eliminates manual content
 
 ### Problem Statement
 
-Current RSS monitoring tools like el_monitorro suffer from:
-- **Basic keyword filtering**: Too noisy (irrelevant matches) and too narrow (missed relevant content)
+Traditional RSS monitoring approaches often face challenges:
+- **Basic keyword filtering**: Can be noisy (irrelevant matches) or too narrow (missed relevant content)
 - **Manual time investment**: Users must read and filter content manually
-- **Poor topic understanding**: Cannot distinguish between nuanced topics like "AWS Lambda performance optimization" vs "AWS Lambda cost analysis"
+- **Limited topic understanding**: Difficulty distinguishing between nuanced topics like "AWS Lambda performance optimization" vs "AWS Lambda cost analysis"
 
 ### Solution
 
