@@ -182,7 +182,7 @@ class TopicCommandHandler:
             args = context.args
 
             if not args:
-                await update.message.reply_text(
+                await update.effective_message.reply_text(
                     "❌ *Missing topic name*\n\n"
                     "Usage: `/removetopic <topic_name>`\n"
                     "Example: `/removetopic AI`\n\n"
@@ -196,7 +196,7 @@ class TopicCommandHandler:
             # Find the topic
             topic = self.topic_repo.get_topic_by_name(chat_id, topic_name)
             if not topic:
-                await update.message.reply_text(
+                await update.effective_message.reply_text(
                     f"❌ Topic *'{topic_name}'* not found.\n\n"
                     f"Use `/topics` to see all your topics.",
                     parse_mode='Markdown'
@@ -207,13 +207,13 @@ class TopicCommandHandler:
             success = self.topic_repo.delete_topic(topic.id)
 
             if success:
-                await update.message.reply_text(
+                await update.effective_message.reply_text(
                     f"✅ Topic *'{topic_name}'* removed successfully!",
                     parse_mode='Markdown'
                 )
                 self.logger.info(f"Removed topic '{topic_name}' from channel {chat_id}")
             else:
-                await update.message.reply_text(
+                await update.effective_message.reply_text(
                     "❌ Failed to remove topic. Please try again.",
                     parse_mode='Markdown'
                 )
@@ -368,7 +368,12 @@ class TopicCommandHandler:
                 f"❌ *Error in {operation}*\n\n"
                 f"Please try again or use `/help` for usage instructions."
             )
-            await update.message.reply_text(error_message, parse_mode='Markdown')
+            # Use effective_message to handle both regular and edited messages
+            message = update.effective_message
+            if message:
+                await message.reply_text(error_message, parse_mode='Markdown')
+            else:
+                self.logger.warning("No effective_message available to send error response")
         except Exception as e:
             self.logger.error(f"Failed to send error message: {e}")
 

@@ -28,6 +28,8 @@ class TestTopicCommandsBasic:
         update = Mock()
         update.effective_chat.id = 12345
         update.message.reply_text = AsyncMock()
+        update.effective_message = Mock()
+        update.effective_message.reply_text = AsyncMock()
         return update
 
     @pytest.fixture
@@ -66,8 +68,8 @@ class TestTopicCommandsBasic:
 
         await handler.handle_remove_topic(mock_update, mock_context)
 
-        mock_update.message.reply_text.assert_called_once()
-        call_args = mock_update.message.reply_text.call_args[0][0]
+        mock_update.effective_message.reply_text.assert_called_once()
+        call_args = mock_update.effective_message.reply_text.call_args[0][0]
         assert "Missing topic name" in call_args
 
     @pytest.mark.asyncio
@@ -108,6 +110,8 @@ class TestFeedCommandsBasic:
         update = Mock()
         update.effective_chat.id = 12345
         update.message.reply_text = AsyncMock()
+        update.effective_message = Mock()
+        update.effective_message.reply_text = AsyncMock()
         return update
 
     @pytest.fixture

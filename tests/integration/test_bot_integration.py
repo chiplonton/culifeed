@@ -94,6 +94,7 @@ class TestBotIntegration:
         update.effective_chat = chat
         update.effective_user = user
         update.message = message
+        update.effective_message = message  # For error handling
 
         # Mock context
         context = Mock()
@@ -257,8 +258,8 @@ class TestBotIntegration:
             # Should not crash, should handle gracefully
             await bot_service.topic_commands.handle_list_topics(update, context)
 
-            # Should have sent some response
-            update.message.reply_text.assert_called()
+            # Should have sent some response via effective_message
+            update.effective_message.reply_text.assert_called()
 
     @pytest.mark.asyncio
     @pytest.mark.asyncio

@@ -276,40 +276,254 @@ def create_config():
 def cleanup(dry_run):
     """Clean up old data and optimize database."""
     console.print("[bold blue]🧹 CuliFeed Database Cleanup[/bold blue]")
-    
+
     try:
         settings = get_settings()
         db_manager = get_db_manager(settings.database.path)
-        
+
         if dry_run:
             console.print("[yellow]📋 Dry run mode - no changes will be made[/yellow]")
-        
+
         # Get initial database info
         initial_info = db_manager.get_database_info()
         console.print(f"Initial database size: {initial_info['database_size_mb']:.2f} MB")
-        
+
         if not dry_run:
             # Clean up old data
             deleted_count = db_manager.cleanup_old_data(settings.database.cleanup_days)
             console.print(f"Deleted {deleted_count} old records")
-            
+
             # Vacuum database
             db_manager.vacuum_database()
-            
+
             # Update statistics
             db_manager.analyze_database()
-            
+
             # Get final database info
             final_info = db_manager.get_database_info()
             console.print(f"Final database size: {final_info['database_size_mb']:.2f} MB")
-            
+
             space_saved = initial_info['database_size_mb'] - final_info['database_size_mb']
             console.print(f"[bold green]✅ Cleanup complete! Saved {space_saved:.2f} MB[/bold green]")
         else:
             console.print("[yellow]Use --cleanup (without --dry-run) to perform actual cleanup[/yellow]")
-            
+
     except Exception as e:
         console.print(f"[bold red]❌ Cleanup error: {e}[/bold red]")
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument('url')
+@click.option('--chat-id', default='test_chat', help='Chat ID for testing (default: test_chat)')
+def fetch_feed(url, chat_id):
+    """Manually fetch and parse a single RSS feed."""
+    console.print(f"[bold blue]📡 Fetching RSS Feed: {url}[/bold blue]")
+
+    async def run_fetch():
+        try:
+            from culifeed.services.manual_processing_service import ManualProcessingService
+
+            settings = get_settings()
+            db_manager = get_db_manager(settings.database.path)
+            service = ManualProcessingService(db_manager)
+
+            console.print(f"🔍 Fetching content from: {url}")
+
+            result = await service.fetch_single_feed(url)
+
+            if not result.success:
+                console.print(f"[bold red]❌ {result.error_message}[/bold red]")
+                sys.exit(1)
+
+            # Display results
+            console.print(f"[bold green]✅ Feed fetched successfully![/bold green]")
+
+            info_table = Table(title="Feed Information")
+            info_table.add_column("Property", style="cyan")
+            info_table.add_column("Value", style="green")
+
+            info_table.add_row("Title", result.title or "Unknown")
+            description = result.description or "None"
+            if len(description) > 100:
+                description = description[:97] + "..."
+            info_table.add_row("Description", description)
+            info_table.add_row("Articles Found", str(result.article_count))
+            info_table.add_row("Feed URL", url)
+
+            console.print(info_table)
+
+            # Show sample articles
+            if result.sample_articles:
+                console.print(f"\n[bold blue]📰 Sample Articles (showing first 3):[/bold blue]")
+                for i, article in enumerate(result.sample_articles, 1):
+                    console.print(f"\n{i}. [bold]{article['title']}[/bold]")
+                    console.print(f"   📅 Published: {article['published'] or 'No date'}")
+                    console.print(f"   🔗 Link: {article['link']}")
+                    if article['content_preview']:
+                        console.print(f"   📝 Content: {article['content_preview']}")
+                    else:
+                        console.print(f"   📝 Content: No content available")
+
+        except Exception as e:
+            console.print(f"[bold red]❌ Feed fetch error: {e}[/bold red]")
+            sys.exit(1)
+
+    # Run the async function
+    asyncio.run(run_fetch())
+
+
+@cli.command()
+@click.option('--feeds', multiple=True, help='RSS feed URLs to process (can specify multiple)')
+@click.option('--chat-id', default='test_chat', help='Chat ID for testing (default: test_chat)')
+@click.option('--max-concurrent', default=3, help='Maximum concurrent feed fetching (default: 3)')
+def process_feeds(feeds, chat_id, max_concurrent):
+    """Process multiple RSS feeds with async fetching."""
+
+    async def run_processing():
+        try:
+            from culifeed.services.manual_processing_service import ManualProcessingService
+
+            settings = get_settings()
+            db_manager = get_db_manager(settings.database.path)
+            service = ManualProcessingService(db_manager)
+
+            if feeds:
+                # Process specific feeds (not implemented in service yet - would need enhancement)
+                console.print(f"[bold blue]🔄 Processing {len(feeds)} specified RSS feeds[/bold blue]")
+                console.print("[yellow]⚠️ Specific feed processing will use default batch processing for now[/yellow]")
+                result = await service.process_default_test_feeds()
+            else:
+                # Use default test feeds
+                console.print("[yellow]📋 No feeds specified, using default test feeds[/yellow]")
+                console.print(f"[bold blue]🔄 Processing default RSS feeds[/bold blue]")
+                result = await service.process_default_test_feeds()
+
+            # Display results
+            results_table = Table(title="Feed Processing Results")
+            results_table.add_column("Feed", style="cyan")
+            results_table.add_column("Status", style="green")
+            results_table.add_column("Articles", style="yellow")
+            results_table.add_column("Details")
+
+            for feed_result in result.feed_results:
+                url = feed_result['url']
+                status = "✅ Success" if feed_result['success'] else "❌ Failed"
+                articles = str(feed_result['article_count'])
+                details = "Processed successfully" if feed_result['success'] else feed_result['error']
+
+                results_table.add_row(
+                    url[:50] + "..." if len(url) > 50 else url,
+                    status,
+                    articles,
+                    details[:50] + "..." if len(details) > 50 else details
+                )
+
+            console.print(results_table)
+            console.print(f"\n[bold blue]📊 Summary: {result.successful_feeds} successful, {result.failed_feeds} failed[/bold blue]")
+            console.print(f"⏱️ Processing time: {result.processing_time_seconds:.2f} seconds")
+
+            if result.failed_feeds > 0:
+                sys.exit(1)
+
+        except Exception as e:
+            console.print(f"[bold red]❌ Feed processing error: {e}[/bold red]")
+            sys.exit(1)
+
+    # Run the async function
+    asyncio.run(run_processing())
+
+
+@cli.command()
+@click.option('--chat-id', default='test_chat', help='Chat ID for testing (default: test_chat)')
+def test_pipeline(chat_id):
+    """Test the complete feed processing pipeline end-to-end."""
+    console.print(f"[bold blue]🧪 Testing Complete Processing Pipeline[/bold blue]")
+
+    async def run_tests():
+        try:
+            from culifeed.services.manual_processing_service import ManualProcessingService
+
+            settings = get_settings()
+            db_manager = get_db_manager(settings.database.path)
+            service = ManualProcessingService(db_manager)
+
+            console.print(f"🔍 Testing with chat_id: {chat_id}")
+
+            result = await service.run_pipeline_tests(chat_id)
+
+            # Display results
+            console.print(f"\n[bold blue]📊 Pipeline Test Results: {result.passed_tests}/{result.total_tests} passed[/bold blue]")
+
+            for test_result in result.test_results:
+                status = "✅" if test_result['success'] else "❌"
+                console.print(f"{status} {test_result['name']}: {test_result['details']}")
+
+            if result.passed_tests == result.total_tests:
+                console.print("[bold green]🎉 All pipeline tests passed![/bold green]")
+            else:
+                console.print(f"[bold red]❌ {result.failed_tests} test(s) failed[/bold red]")
+                sys.exit(1)
+
+        except Exception as e:
+            console.print(f"[bold red]❌ Pipeline test error: {e}[/bold red]")
+            sys.exit(1)
+
+    # Run the async function
+    asyncio.run(run_tests())
+
+
+@cli.command()
+@click.option('--chat-id', help='Filter by specific chat ID')
+def show_feeds(chat_id):
+    """Show all feeds in the database with their status."""
+    console.print("[bold blue]📊 Feed Status Report[/bold blue]")
+
+    try:
+        from culifeed.storage.feed_repository import FeedRepository
+        settings = get_settings()
+        db_manager = get_db_manager(settings.database.path)
+        feed_repo = FeedRepository(db_manager)
+
+        if chat_id:
+            feeds = feed_repo.get_feeds_for_chat(chat_id, active_only=False)
+            console.print(f"Feeds for chat {chat_id}: {len(feeds)}")
+        else:
+            feeds = feed_repo.get_all_active_feeds()
+            console.print(f"Total active feeds: {len(feeds)}")
+
+        if not feeds:
+            console.print("[yellow]⚠️ No feeds found in database[/yellow]")
+            return
+
+        feeds_table = Table(title="RSS Feeds")
+        feeds_table.add_column("Status", style="green")
+        feeds_table.add_column("Title", style="cyan")
+        feeds_table.add_column("URL", style="blue")
+        feeds_table.add_column("Chat", style="yellow")
+        feeds_table.add_column("Errors", style="red")
+        feeds_table.add_column("Last Success")
+
+        for feed in feeds:
+            status = "🟢" if feed.active and feed.error_count == 0 else "🟡" if feed.error_count < 5 else "🔴"
+            title = feed.title or "Untitled"
+            url = str(feed.url)
+            if len(url) > 40:
+                url = url[:37] + "..."
+
+            feeds_table.add_row(
+                status,
+                title[:30] + "..." if len(title) > 30 else title,
+                url,
+                feed.chat_id,
+                str(feed.error_count),
+                str(feed.last_success_at) if feed.last_success_at else "Never"
+            )
+
+        console.print(feeds_table)
+
+    except Exception as e:
+        console.print(f"[bold red]❌ Error showing feeds: {e}[/bold red]")
         sys.exit(1)
 
 
