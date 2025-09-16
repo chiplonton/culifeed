@@ -76,6 +76,254 @@ python run_bot.py
 5. **Add feeds**: `/add_feed "https://example.com/feed.xml"`
 6. **Receive daily digest automatically!**
 
+
+## Debug Logging & Troubleshooting
+
+### Enable Debug Logging
+
+Debug logging is essential for troubleshooting bot issues and monitoring system behavior.
+
+#### Method 1: Environment Variables (Recommended)
+
+```bash
+# Enable debug logging in .env file
+CULIFEED_LOGGING__LEVEL=DEBUG
+CULIFEED_LOGGING__CONSOLE_LOGGING=true
+CULIFEED_DEBUG=true
+```
+
+#### Method 2: Runtime Override
+
+```bash
+# Override logging level when starting the bot
+CULIFEED_LOGGING__LEVEL=DEBUG python run_bot.py
+
+# Enable all debug features
+CULIFEED_DEBUG=true CULIFEED_LOGGING__LEVEL=DEBUG python run_bot.py
+
+# Use the dedicated debug runner (recommended)
+python debug_bot.py
+```
+
+#### Method 3: Python Logging Override
+
+```bash
+# Set Python's root logger to debug
+PYTHONPATH=. python -c "
+import logging
+logging.basicConfig(level=logging.DEBUG)
+import run_bot
+run_bot.main()
+"
+```
+
+### Log Levels Explained
+
+| Level | Description | Use Case |
+|-------|-------------|----------|
+| `DEBUG` | Detailed diagnostic info | Development, troubleshooting |
+| `INFO` | General operational messages | Production monitoring |
+| `WARNING` | Warning messages | Production issues |
+| `ERROR` | Error messages only | Critical issues only |
+
+### Debug Output Examples
+
+#### Normal Operation (INFO level)
+```
+[INFO] culifeed.bot_runner:main:37 - Starting CuliFeed Telegram Bot...
+[INFO] culifeed.bot_runner:main:49 - Bot initialized successfully. Starting polling...
+🤖 CuliFeed Bot is running! Press Ctrl+C to stop.
+```
+
+#### Debug Mode (DEBUG level)
+```bash
+# Start with debug logging
+CULIFEED_LOGGING__LEVEL=DEBUG python run_bot.py
+```
+
+Expected debug output:
+```
+[DEBUG] culifeed.config.settings - Loading configuration from environment
+[DEBUG] culifeed.database.connection - Connecting to database: data/culifeed.db
+[DEBUG] culifeed.bot.telegram_bot - Initializing Telegram bot service
+[DEBUG] culifeed.bot.telegram_bot - Creating bot application with token: ***
+[INFO]  culifeed.bot_runner:main:37 - Starting CuliFeed Telegram Bot...
+[DEBUG] culifeed.bot.telegram_bot - Registering command handlers
+[DEBUG] culifeed.bot.telegram_bot - Added handler: start
+[DEBUG] culifeed.bot.telegram_bot - Added handler: help
+[DEBUG] culifeed.bot.telegram_bot - All command handlers registered
+[INFO]  culifeed.bot_runner:main:49 - Bot initialized successfully. Starting polling...
+🤖 CuliFeed Bot is running! Press Ctrl+C to stop.
+```
+
+### Component-Specific Debug Logging
+
+Enable debug logging for specific components:
+
+```bash
+# Database operations
+CULIFEED_LOGGING__LEVEL=DEBUG python -c "
+import logging
+logging.getLogger('culifeed.database').setLevel(logging.DEBUG)
+# ... run your code
+"
+
+# Bot message handling
+CULIFEED_LOGGING__LEVEL=DEBUG python -c "
+import logging
+logging.getLogger('culifeed.bot').setLevel(logging.DEBUG)
+# ... run your code
+"
+
+# AI provider calls
+CULIFEED_LOGGING__LEVEL=DEBUG python -c "
+import logging
+logging.getLogger('culifeed.ai').setLevel(logging.DEBUG)
+# ... run your code
+"
+```
+
+### Common Troubleshooting Scenarios
+
+#### 1. Bot Not Starting
+
+```bash
+# Check configuration
+python main.py check-config
+
+# Start with maximum debug info
+CULIFEED_LOGGING__LEVEL=DEBUG CULIFEED_DEBUG=true python run_bot.py
+```
+
+Common issues:
+- Invalid bot token: `TELEGRAM_BOT_TOKEN` not set or incorrect
+- Database issues: Check `CULIFEED_DATABASE__PATH` permissions
+- Missing dependencies: Run `pip install -r requirements.txt`
+
+#### 2. Bot Not Responding to Commands
+
+```bash
+# Enable telegram-bot library debug logging
+CULIFEED_LOGGING__LEVEL=DEBUG python -c "
+import logging
+logging.getLogger('telegram').setLevel(logging.DEBUG)
+logging.getLogger('httpx').setLevel(logging.INFO)  # HTTP requests
+exec(open('run_bot.py').read())
+"
+```
+
+Check for:
+- Bot not added to channel as admin
+- Commands not registered properly
+- Network connectivity issues
+
+#### 3. Database Connection Issues
+
+```bash
+# Test database connection
+python -c "
+from culifeed.database.connection import get_db_manager
+from culifeed.config.settings import get_settings
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
+settings = get_settings()
+db = get_db_manager(settings.database.path)
+with db.get_connection() as conn:
+    result = conn.execute('SELECT COUNT(*) FROM channels').fetchone()
+    print(f'Channels in database: {result[0]}')
+"
+```
+
+#### 4. AI Provider Issues
+
+```bash
+# Test AI providers with debug logging
+CULIFEED_LOGGING__LEVEL=DEBUG python -c "
+from culifeed.ai.providers.gemini_provider import GeminiProvider
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
+# Test your configured provider
+provider = GeminiProvider('your-api-key')
+print('AI provider initialized successfully')
+"
+```
+
+### Log File Output
+
+Enable file logging for persistent debug information:
+
+```bash
+# Enable file logging
+CULIFEED_LOGGING__FILE_PATH=logs/culifeed.log
+CULIFEED_LOGGING__LEVEL=DEBUG
+CULIFEED_LOGGING__CONSOLE_LOGGING=true
+
+# Create logs directory
+mkdir -p logs
+
+# Start bot with file logging
+python run_bot.py
+```
+
+Monitor logs in real-time:
+```bash
+# Follow log file
+tail -f logs/culifeed.log
+
+# Filter for specific components
+tail -f logs/culifeed.log | grep "telegram_bot"
+
+# Search for errors
+tail -f logs/culifeed.log | grep "ERROR"
+```
+
+### Performance Debug Mode
+
+Enable performance monitoring and detailed timing:
+
+```bash
+# Enable performance debugging
+CULIFEED_DEBUG=true
+CULIFEED_LOGGING__LEVEL=DEBUG
+CULIFEED_PERFORMANCE__ENABLE_MONITORING=true
+
+python run_bot.py
+```
+
+This will show:
+- Request processing times
+- Database query duration
+- AI provider response times
+- Memory usage statistics
+
+### Debug Commands
+
+Test individual components:
+
+```bash
+# Test bot initialization only
+python -c "
+from culifeed.bot.telegram_bot import TelegramBotService
+import asyncio
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
+async def test():
+    bot = TelegramBotService()
+    print('Bot service created successfully')
+
+asyncio.run(test())
+"
+
+# Test database initialization
+python main.py init-db --verbose
+
+# Test configuration loading
+python main.py check-config --debug
+```
+
 ## Project Structure
 
 ```

@@ -23,6 +23,7 @@ from ...database.connection import DatabaseConnection
 from ...database.models import Feed
 from ...processing.feed_fetcher import FeedFetcher, FetchResult
 from ...ingestion.feed_manager import FeedManager
+from ...storage.feed_repository import FeedRepository
 from ...utils.logging import get_logger_for_component
 from ...utils.validators import URLValidator, ValidationError
 from ...utils.exceptions import TelegramError, FeedError, ErrorCode
@@ -39,6 +40,7 @@ class FeedCommandHandler:
         """
         self.db = db_connection
         self.feed_manager = FeedManager()
+        self.feed_repository = FeedRepository(db_connection)
         self.feed_fetcher = FeedFetcher(max_concurrent=1, timeout=15)  # Conservative for bot usage
         self.logger = get_logger_for_component('feed_commands')
 
@@ -53,7 +55,7 @@ class FeedCommandHandler:
             chat_id = str(update.effective_chat.id)
 
             # Get all feeds for this channel
-            feeds = self.feed_manager.get_feeds_for_channel(chat_id, active_only=True)
+            feeds = self.feed_repository.get_feeds_for_chat(chat_id, active_only=True)
 
             if not feeds:
                 message = (
@@ -137,7 +139,7 @@ class FeedCommandHandler:
                 return
 
             # Check if feed already exists
-            existing_feed = self.feed_manager.get_feed_by_url(chat_id, validated_url)
+            existing_feed = self.feed_repository.get_feed_by_url(chat_id, validated_url)
             if existing_feed:
                 status = "active" if existing_feed.active else "inactive"
                 await update.message.reply_text(
@@ -182,7 +184,7 @@ class FeedCommandHandler:
                 )
 
                 # Save to database
-                feed_id = self.feed_manager.add_feed(feed)
+                feed_id = self.feed_repository.create_feed(feed)
 
                 if feed_id:
                     await test_message.edit_text(
@@ -247,7 +249,7 @@ class FeedCommandHandler:
                 validated_url = URLValidator.validate_feed_url(feed_url)
             except ValidationError:
                 # Try to find feed by partial URL match
-                feeds = self.feed_manager.get_feeds_for_channel(chat_id, active_only=True)
+                feeds = self.feed_repository.get_feeds_for_chat(chat_id, active_only=True)
                 matching_feeds = [f for f in feeds if feed_url in str(f.url)]
 
                 if len(matching_feeds) == 1:
@@ -266,7 +268,7 @@ class FeedCommandHandler:
                     return
 
             # Find the feed
-            feed = self.feed_manager.get_feed_by_url(chat_id, validated_url)
+            feed = self.feed_repository.get_feed_by_url(chat_id, validated_url)
             if not feed:
                 await update.message.reply_text(
                     f"❌ RSS feed not found: `{validated_url}`\n\n"
@@ -276,7 +278,7 @@ class FeedCommandHandler:
                 return
 
             # Remove the feed
-            success = self.feed_manager.remove_feed(feed.id)
+            success = self.feed_repository.delete_feed(feed.id)
 
             if success:
                 await update.message.reply_text(
@@ -463,7 +465,7 @@ class FeedCommandHandler:
             Dictionary with feed statistics
         """
         try:
-            feeds = self.feed_manager.get_feeds_for_channel(chat_id, active_only=True)
+            feeds = self.feed_repository.get_feeds_for_chat(chat_id, active_only=True)
 
             healthy_count = sum(1 for feed in feeds if feed.is_healthy())
             error_count = sum(1 for feed in feeds if feed.error_count > 0)
@@ -499,7 +501,7 @@ class FeedCommandHandler:
             Validation results dictionary
         """
         try:
-            feeds = self.feed_manager.get_feeds_for_channel(chat_id, active_only=True)
+            feeds = self.feed_repository.get_feeds_for_chat(chat_id, active_only=True)
 
             issues = []
             warnings = []
@@ -527,3 +529,233 @@ class FeedCommandHandler:
         except Exception as e:
             self.logger.error(f"Error validating feed setup: {e}")
             return {'valid': False, 'issues': ['Validation error occurred']}
+
+    # ================================================================
+    # MANUAL PROCESSING COMMANDS
+    # ================================================================
+
+    async def handle_fetch_feed(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /fetchfeed command - manually fetch and test a single RSS feed.
+
+        Args:
+            update: Telegram update object
+            context: Bot context
+        """
+        try:
+            from ...services.manual_processing_service import ManualProcessingService
+
+            chat_id = str(update.effective_chat.id)
+            self.logger.info(f"Manual feed fetch requested by chat {chat_id}")
+
+            # Parse arguments
+            if not context.args:
+                await self._send_fetch_feed_help(update)
+                return
+
+            url = context.args[0]
+
+            # Send processing message
+            processing_msg = await update.message.reply_text(
+                f"🔍 *Fetching RSS Feed*\n\n📡 Fetching content from:\n`{url}`",
+                parse_mode='Markdown'
+            )
+
+            # Use shared service
+            service = ManualProcessingService(self.db)
+            result = await service.fetch_single_feed(url)
+
+            if not result.success:
+                await processing_msg.edit_text(
+                    f"❌ *Feed Fetch Failed*\n\n"
+                    f"{result.error_message}\n\n"
+                    f"Feed URL: `{url}`",
+                    parse_mode='Markdown'
+                )
+                return
+
+            # Format results
+            title = result.title or "Unknown Feed"
+            description = result.description or "No description"
+            if len(description) > 100:
+                description = description[:97] + "..."
+
+            result_message = (
+                f"✅ *Feed Fetched Successfully!*\n\n"
+                f"📰 *{title}*\n"
+                f"📝 {description}\n\n"
+                f"📊 *Results:*\n"
+                f"• Articles found: {result.article_count}\n"
+                f"• Feed URL: `{url}`\n\n"
+                f"📄 *Sample Articles:*\n"
+            )
+
+            # Add sample articles
+            for i, article in enumerate(result.sample_articles, 1):
+                article_title = article['title']
+                if len(article_title) > 50:
+                    article_title = article_title[:47] + "..."
+
+                published = article['published'][:10] if article['published'] else "No date"
+                result_message += f"{i}. {article_title} ({published})\n"
+
+            if result.article_count > 3:
+                result_message += f"... and {result.article_count - 3} more articles\n"
+
+            await processing_msg.edit_text(result_message, parse_mode='Markdown')
+
+        except Exception as e:
+            await self._handle_error(update, "fetch feed", e)
+
+    async def handle_process_feeds(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /processfeeds command - manually process all feeds for this channel.
+
+        Args:
+            update: Telegram update object
+            context: Bot context
+        """
+        try:
+            from ...services.manual_processing_service import ManualProcessingService
+
+            chat_id = str(update.effective_chat.id)
+            self.logger.info(f"Manual feed processing requested by chat {chat_id}")
+
+            # Send processing message
+            processing_msg = await update.message.reply_text(
+                f"🔄 *Processing RSS Feeds*\n\n⏳ Checking feeds for this channel...",
+                parse_mode='Markdown'
+            )
+
+            # Use shared service
+            service = ManualProcessingService(self.db)
+            result = await service.process_feeds_for_chat(chat_id)
+
+            if result.total_feeds == 0:
+                await processing_msg.edit_text(
+                    "📋 *No Active Feeds*\n\n"
+                    "This channel doesn't have any active RSS feeds configured.\n\n"
+                    "Use `/addfeed <url>` to add feeds first.",
+                    parse_mode='Markdown'
+                )
+                return
+
+            # Update processing message
+            await processing_msg.edit_text(
+                f"🔄 *Processing {result.total_feeds} RSS Feed(s)*\n\n"
+                f"⏳ Fetching content from all feeds...",
+                parse_mode='Markdown'
+            )
+
+            # Format final message
+            status_emoji = "✅" if result.failed_feeds == 0 else "⚠️" if result.successful_feeds > 0 else "❌"
+
+            final_message = (
+                f"{status_emoji} *Feed Processing Complete*\n\n"
+                f"📊 *Summary:*\n"
+                f"• Total feeds: {result.total_feeds}\n"
+                f"• Successful: {result.successful_feeds}\n"
+                f"• Failed: {result.failed_feeds}\n"
+                f"• Total articles: {result.total_articles}\n"
+                f"• Processing time: {result.processing_time_seconds:.1f}s\n\n"
+                f"📋 *Details:*\n"
+            )
+
+            # Add details (limit to prevent message being too long)
+            for feed_result in result.feed_results[:10]:  # Limit to 10 feeds
+                title = feed_result['title']
+                if feed_result['success']:
+                    final_message += f"✅ {title}: {feed_result['article_count']} articles\n"
+                else:
+                    error = feed_result['error'][:30] + "..." if len(feed_result['error']) > 30 else feed_result['error']
+                    final_message += f"❌ {title}: {error}\n"
+
+            if len(result.feed_results) > 10:
+                final_message += f"... and {len(result.feed_results) - 10} more feeds\n"
+
+            await processing_msg.edit_text(final_message, parse_mode='Markdown')
+
+        except Exception as e:
+            await self._handle_error(update, "process feeds", e)
+
+    async def handle_test_pipeline(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /testpipeline command - test the complete processing pipeline.
+
+        Args:
+            update: Telegram update object
+            context: Bot context
+        """
+        try:
+            from ...services.manual_processing_service import ManualProcessingService
+
+            chat_id = str(update.effective_chat.id)
+            self.logger.info(f"Pipeline test requested by chat {chat_id}")
+
+            # Send initial message
+            processing_msg = await update.message.reply_text(
+                "🧪 *Testing Processing Pipeline*\n\n"
+                "⏳ Running comprehensive tests...",
+                parse_mode='Markdown'
+            )
+
+            # Use shared service
+            service = ManualProcessingService(self.db)
+            result = await service.run_pipeline_tests(chat_id)
+
+            if result.total_tests == 0:
+                await processing_msg.edit_text(
+                    "❌ *Test Framework Not Available*\n\n"
+                    "The feed processing test framework is not accessible.\n"
+                    "Please run tests manually using the CLI commands.",
+                    parse_mode='Markdown'
+                )
+                return
+
+            # Update progress for each test
+            for i, test_result in enumerate(result.test_results, 1):
+                await processing_msg.edit_text(
+                    f"🧪 *Testing Processing Pipeline*\n\n"
+                    f"🔄 Running test {i}/{result.total_tests}: {test_result['name']}...",
+                    parse_mode='Markdown'
+                )
+
+            # Final results
+            status_emoji = "✅" if result.passed_tests == result.total_tests else "⚠️" if result.passed_tests > 0 else "❌"
+
+            final_message = (
+                f"{status_emoji} *Pipeline Test Complete*\n\n"
+                f"📊 *Results: {result.passed_tests}/{result.total_tests} tests passed*\n\n"
+                f"📋 *Test Details:*\n"
+            )
+
+            for test_result in result.test_results:
+                status = "✅" if test_result['success'] else "❌"
+                final_message += f"{status} {test_result['name']}\n"
+                if not test_result['success']:
+                    details = test_result['details'][:50] + "..." if len(test_result['details']) > 50 else test_result['details']
+                    final_message += f"   📝 {details}\n"
+
+            if result.passed_tests == result.total_tests:
+                final_message += "\n🎉 All pipeline tests passed!"
+            else:
+                final_message += f"\n⚠️ {result.failed_tests} test(s) failed"
+
+            await processing_msg.edit_text(final_message, parse_mode='Markdown')
+
+        except Exception as e:
+            await self._handle_error(update, "test pipeline", e)
+
+    async def _send_fetch_feed_help(self, update: Update) -> None:
+        """Send help message for /fetchfeed command."""
+        help_message = (
+            "❓ *How to manually fetch a feed:*\n\n"
+            "*Format:* `/fetchfeed <rss_url>`\n\n"
+            "*Examples:*\n"
+            "• `/fetchfeed https://aws.amazon.com/blogs/compute/feed/`\n"
+            "• `/fetchfeed https://blog.docker.com/feed/`\n"
+            "• `/fetchfeed https://kubernetes.io/feed.xml`\n\n"
+            "*Purpose:*\n"
+            "• Test RSS feed connectivity\n"
+            "• Preview feed content without adding it\n"
+            "• Debug feed parsing issues\n\n"
+            "*Note:* This command only fetches and displays feed info - it doesn't add the feed."
+        )
+        await update.message.reply_text(help_message, parse_mode='Markdown')

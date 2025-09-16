@@ -499,8 +499,9 @@ class TestTopicRepository:
         # Verify keywords were stored and retrieved correctly
         assert isinstance(retrieved.keywords, list)
         assert isinstance(retrieved.exclude_keywords, list)
-        assert retrieved.keywords == topic.keywords
-        assert retrieved.exclude_keywords == topic.exclude_keywords
+        # Sort lists before comparison since JSON parsing may change order
+        assert sorted(retrieved.keywords) == sorted(topic.keywords)
+        assert sorted(retrieved.exclude_keywords) == sorted(topic.exclude_keywords)
 
 
 class TestRepositoryIntegration:

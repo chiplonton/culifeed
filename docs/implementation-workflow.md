@@ -275,21 +275,6 @@ python main.py --health-check
 
 **Milestone**: System handles failures gracefully
 
-#### Day 33-35: Performance Optimization
-**Files to Create**:
-```
-culifeed/optimization/performance_monitor.py  # Metrics
-culifeed/optimization/caching.py              # Caching system
-tests/benchmarks/performance_benchmarks.py    # Performance tests
-```
-
-**Testing Commands**:
-```bash
-python main.py --benchmark --articles=1000 --topics=10
-python tests/benchmarks/performance_benchmarks.py
-```
-
-**Milestone**: Processes 1000 articles in <5 minutes
 
 ### **PHASE 6: Production Deployment (Days 36-42)**
 
@@ -308,36 +293,6 @@ sudo systemctl status culifeed-bot
 ```
 
 **Milestone**: Services running on VPS
-
-#### Day 38-39: Monitoring
-**Files to Create**:
-```
-culifeed/monitoring/metrics_collector.py  # System metrics
-culifeed/monitoring/alerting.py           # Alert system
-```
-
-**Testing Commands**:
-```bash
-python -c "from monitoring.metrics_collector import collect_metrics; print(collect_metrics())"
-python main.py --trigger-test-alerts
-```
-
-**Milestone**: Monitoring captures all metrics, alerting functional
-
-#### Day 40-42: Production Validation
-**Files to Create**:
-```
-validation/production_tests.py         # Production validation
-claudedocs/production_deployment.md    # Deployment notes
-```
-
-**Testing Commands**:
-```bash
-python validation/production_tests.py --comprehensive
-bash deployment/scripts/health_check.sh --full-system
-```
-
-**Milestone**: System production-ready, 3-day stability test passed
 
 ---
 

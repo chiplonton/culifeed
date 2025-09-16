@@ -124,6 +124,11 @@ class TelegramBotService:
         self.application.add_handler(CommandHandler("removefeed", self.feed_commands.handle_remove_feed))
         self.application.add_handler(CommandHandler("testfeed", self.feed_commands.handle_test_feed))
 
+        # Manual processing commands
+        self.application.add_handler(CommandHandler("fetchfeed", self.feed_commands.handle_fetch_feed))
+        self.application.add_handler(CommandHandler("processfeeds", self.feed_commands.handle_process_feeds))
+        self.application.add_handler(CommandHandler("testpipeline", self.feed_commands.handle_test_pipeline))
+
         # Delivery commands
         self.application.add_handler(CommandHandler("preview", self._handle_preview))
         self.application.add_handler(CommandHandler("settings", self._handle_settings))
@@ -131,6 +136,14 @@ class TelegramBotService:
         # Auto-registration handler
         self.application.add_handler(
             ChatMemberHandler(self.auto_registration.handle_chat_member_update, ChatMemberHandler.MY_CHAT_MEMBER)
+        )
+
+        # Manual command fallback handler (before unknown command handler)
+        self.application.add_handler(
+            MessageHandler(
+                filters.TEXT & filters.Regex(r'^/(fetchfeed|processfeeds|testpipeline)\b'),
+                self._handle_manual_command_fallback
+            )
         )
 
         # Unknown command handler (must be last)
@@ -150,6 +163,9 @@ class TelegramBotService:
             BotCommand("addtopic", "Add a new topic with keywords"),
             BotCommand("feeds", "List all RSS feeds for this channel"),
             BotCommand("addfeed", "Add a new RSS feed"),
+            BotCommand("fetchfeed", "Manually fetch and test a single RSS feed"),
+            BotCommand("processfeeds", "Process all feeds for this channel"),
+            BotCommand("testpipeline", "Test the complete processing pipeline"),
             BotCommand("preview", "Preview latest content"),
             BotCommand("settings", "Show channel settings"),
         ]
@@ -212,12 +228,17 @@ class TelegramBotService:
                 "• `/addfeed <url>` - Add RSS feed\n"
                 "• `/removefeed <url>` - Remove feed\n"
                 "• `/testfeed <url>` - Test feed connectivity\n\n"
+                "*⚡ Manual Processing:*\n"
+                "• `/fetchfeed <url>` - Fetch and preview RSS feed\n"
+                "• `/processfeeds` - Process all feeds for this channel\n"
+                "• `/testpipeline` - Run complete pipeline tests\n\n"
                 "*⚙️ Content & Settings:*\n"
                 "• `/preview` - Preview latest content\n"
                 "• `/settings` - Show channel settings\n\n"
                 "*Example Usage:*\n"
                 "`/addtopic AI machine learning, artificial intelligence, ML`\n"
-                "`/addfeed https://aws.amazon.com/blogs/compute/feed/`"
+                "`/addfeed https://aws.amazon.com/blogs/compute/feed/`\n"
+                "`/fetchfeed https://blog.docker.com/feed/`"
             )
 
             await update.message.reply_text(help_msg, parse_mode='Markdown')
@@ -325,6 +346,39 @@ class TelegramBotService:
             "This will show and allow editing channel settings."
         )
 
+    async def _handle_manual_command_fallback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Fallback handler for manual commands that aren't being recognized as proper commands."""
+        try:
+            message_text = update.message.text
+            chat_id = str(update.effective_chat.id)
+
+            self.logger.info(f"Manual command fallback triggered: '{message_text}' from chat {chat_id}")
+
+            # Parse the command manually
+            parts = message_text.split()
+            if len(parts) > 0:
+                command = parts[0].lower()
+                args = parts[1:] if len(parts) > 1 else []
+
+                # Set context.args for compatibility with command handlers
+                context.args = args
+
+                # Route to the appropriate handler
+                if command == '/fetchfeed':
+                    self.logger.info(f"Routing to fetchfeed handler with args: {args}")
+                    await self.feed_commands.handle_fetch_feed(update, context)
+                elif command == '/processfeeds':
+                    self.logger.info(f"Routing to processfeeds handler")
+                    await self.feed_commands.handle_process_feeds(update, context)
+                elif command == '/testpipeline':
+                    self.logger.info(f"Routing to testpipeline handler")
+                    await self.feed_commands.handle_test_pipeline(update, context)
+                else:
+                    self.logger.warning(f"Unknown manual command in fallback: {command}")
+
+        except Exception as e:
+            self.logger.error(f"Error in manual command fallback handler: {e}")
+
     async def _handle_unknown_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle unknown commands."""
         try:
@@ -394,15 +448,12 @@ class TelegramBotService:
         if not self.application:
             raise RuntimeError("Bot not initialized. Call initialize() first.")
 
-        try:
-            self.logger.info("Starting Telegram bot polling...")
-            await self.application.run_polling(
-                allowed_updates=Update.ALL_TYPES,
-                drop_pending_updates=True
-            )
-        except Exception as e:
-            self.logger.error(f"Error during bot polling: {e}")
-            raise
+        self.logger.info("Starting Telegram bot polling...")
+        # Let run_polling handle everything - it manages its own event loop
+        await self.application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True
+        )
 
     async def stop(self) -> None:
         """Stop the bot service."""
@@ -412,6 +463,77 @@ class TelegramBotService:
                 self.logger.info("Telegram bot stopped")
             except Exception as e:
                 self.logger.error(f"Error stopping bot: {e}")
+
+    def run(self) -> None:
+        """Run the bot using the recommended python-telegram-bot pattern."""
+        # Create application
+        self.application = (
+            ApplicationBuilder()
+            .token(self.settings.telegram.bot_token)
+            .build()
+        )
+        
+        self.bot = self.application.bot
+        
+        # Initialize message sender with bot instance
+        self.message_sender = MessageSender(self.bot, self.db)
+        
+        # Register handlers synchronously
+        self._register_handlers_sync()
+        
+        # Start polling - this manages the entire lifecycle
+        self.application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True
+        )
+    
+    def _register_handlers_sync(self) -> None:
+        """Register all command and message handlers synchronously."""
+        # Command handlers
+        self.application.add_handler(CommandHandler("start", self._handle_start))
+        self.application.add_handler(CommandHandler("help", self._handle_help))
+        self.application.add_handler(CommandHandler("status", self._handle_status))
+
+        # Topic management commands
+        self.application.add_handler(CommandHandler("topics", self.topic_commands.handle_list_topics))
+        self.application.add_handler(CommandHandler("addtopic", self.topic_commands.handle_add_topic))
+        self.application.add_handler(CommandHandler("removetopic", self.topic_commands.handle_remove_topic))
+        self.application.add_handler(CommandHandler("edittopic", self.topic_commands.handle_edit_topic))
+
+        # Feed management commands
+        self.application.add_handler(CommandHandler("feeds", self.feed_commands.handle_list_feeds))
+        self.application.add_handler(CommandHandler("addfeed", self.feed_commands.handle_add_feed))
+        self.application.add_handler(CommandHandler("removefeed", self.feed_commands.handle_remove_feed))
+        self.application.add_handler(CommandHandler("testfeed", self.feed_commands.handle_test_feed))
+
+        # Manual processing commands
+        self.application.add_handler(CommandHandler("fetchfeed", self.feed_commands.handle_fetch_feed))
+        self.application.add_handler(CommandHandler("processfeeds", self.feed_commands.handle_process_feeds))
+        self.application.add_handler(CommandHandler("testpipeline", self.feed_commands.handle_test_pipeline))
+
+        # Delivery commands
+        self.application.add_handler(CommandHandler("preview", self._handle_preview))
+        self.application.add_handler(CommandHandler("settings", self._handle_settings))
+
+        # Auto-registration handler
+        self.application.add_handler(
+            ChatMemberHandler(self.auto_registration.handle_chat_member_update, ChatMemberHandler.MY_CHAT_MEMBER)
+        )
+
+        # Manual command fallback handler (before unknown command handler)
+        self.application.add_handler(
+            MessageHandler(
+                filters.TEXT & filters.Regex(r'^/(fetchfeed|processfeeds|testpipeline)\b'),
+                self._handle_manual_command_fallback
+            )
+        )
+
+        # Unknown command handler (must be last)
+        self.application.add_handler(
+            MessageHandler(filters.COMMAND, self._handle_unknown_command)
+        )
+
+        self.logger.info("All command handlers registered")
 
     async def send_message(self, chat_id: str, message: str, parse_mode: str = 'Markdown') -> bool:
         """Send a message to a specific chat.
