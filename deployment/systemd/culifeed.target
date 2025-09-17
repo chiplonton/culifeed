@@ -1,0 +1,8 @@
+[Unit]
+Description=CuliFeed RSS Content Curation System
+Documentation=https://github.com/chiplonton/culifeed
+Wants=culifeed-bot.service culifeed-processor.timer
+After=culifeed-bot.service culifeed-processor.timer
+
+[Install]
+WantedBy=multi-user.target

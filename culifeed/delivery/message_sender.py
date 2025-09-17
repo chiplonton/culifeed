@@ -27,7 +27,7 @@ from ..storage.article_repository import ArticleRepository
 from ..config.settings import get_settings
 from ..utils.logging import get_logger_for_component
 from ..utils.exceptions import DeliveryError, ErrorCode
-
+from .digest_formatter import DigestFormatter, DigestFormat
 
 @dataclass
 class DeliveryResult:
@@ -42,7 +42,6 @@ class DeliveryResult:
     def __post_init__(self):
         if not self.delivery_time:
             self.delivery_time = datetime.now(timezone.utc)
-
 
 class MessageSender:
     """Handles delivery of curated content to Telegram channels."""
@@ -60,10 +59,12 @@ class MessageSender:
         self.settings = get_settings()
         self.logger = get_logger_for_component('message_sender')
 
+        # Use DigestFormatter for all formatting needs
+        self.formatter = DigestFormatter()
+
         # Message formatting settings
         self.max_message_length = 4096  # Telegram limit
         self.max_articles_per_message = 5
-        self.max_summary_length = 200
 
     async def deliver_daily_digest(self, chat_id: str, limit_per_topic: int = 5) -> DeliveryResult:
         """Deliver daily digest of curated articles to a channel.
@@ -91,30 +92,23 @@ class MessageSender:
                     error="No articles ready for delivery"
                 )
 
-            # Format and send messages
-            messages_sent = 0
-            total_articles = 0
+            # Format messages using DigestFormatter
+            formatted_messages = self.formatter.format_daily_digest(
+                articles_by_topic,
+                DigestFormat.DETAILED
+            )
 
-            # Send header message
-            header_msg = self._format_digest_header(articles_by_topic)
-            if header_msg:
-                success = await self._send_message(chat_id, header_msg)
+            # Send all formatted messages
+            messages_sent = 0
+            total_articles = sum(len(articles) for articles in articles_by_topic.values())
+
+            for message in formatted_messages:
+                success = await self._send_message(chat_id, message)
                 if success:
                     messages_sent += 1
 
-            # Send articles by topic
-            for topic_name, articles in articles_by_topic.items():
-                topic_messages = self._format_topic_articles(topic_name, articles)
-
-                for message in topic_messages:
-                    success = await self._send_message(chat_id, message)
-                    if success:
-                        messages_sent += 1
-
-                    # Small delay between messages to avoid rate limiting
-                    await asyncio.sleep(0.5)
-
-                total_articles += len(articles)
+                # Small delay between messages to avoid rate limiting
+                await asyncio.sleep(0.5)
 
             # Update delivery status in database
             await self._mark_articles_delivered(chat_id, articles_by_topic)
@@ -173,7 +167,7 @@ class MessageSender:
                     preview_msg += f"🎯 *{topic_name}* ({len(articles)} articles)\n"
 
                     for article in articles[:2]:  # Show max 2 per topic in preview
-                        title = self._truncate_text(article.title, 60)
+                        title = self.formatter._truncate_text(article.title, 60)
                         preview_msg += f"• {title}\n"
 
                     if len(articles) > 2:
@@ -259,110 +253,6 @@ class MessageSender:
         except Exception as e:
             self.logger.error(f"Error getting articles for delivery: {e}")
             return {}
-
-    def _format_digest_header(self, articles_by_topic: Dict[str, List[Article]]) -> str:
-        """Format header message for daily digest.
-
-        Args:
-            articles_by_topic: Articles organized by topic
-
-        Returns:
-            Formatted header message
-        """
-        total_articles = sum(len(articles) for articles in articles_by_topic.values())
-        topic_count = len(articles_by_topic)
-
-        today = datetime.now(timezone.utc).strftime("%B %d, %Y")
-
-        header = (
-            f"📰 *CuliFeed Daily Digest*\n"
-            f"📅 {today}\n\n"
-            f"🎯 *{topic_count}* topics • 📄 *{total_articles}* curated articles\n\n"
-        )
-
-        # Add topic summary
-        for topic_name, articles in articles_by_topic.items():
-            header += f"• *{topic_name}*: {len(articles)} articles\n"
-
-        header += "\n📖 *Reading time: ~3 minutes*"
-
-        return header
-
-    def _format_topic_articles(self, topic_name: str, articles: List[Article]) -> List[str]:
-        """Format articles for a topic into Telegram messages.
-
-        Args:
-            topic_name: Name of the topic
-            articles: List of articles
-
-        Returns:
-            List of formatted message strings
-        """
-        messages = []
-        current_message = f"🎯 *{topic_name}*\n\n"
-
-        for i, article in enumerate(articles, 1):
-            # Format individual article
-            article_text = self._format_single_article(article, i)
-
-            # Check if adding this article would exceed message length
-            if len(current_message + article_text) > self.max_message_length:
-                # Send current message and start a new one
-                messages.append(current_message.rstrip())
-                current_message = f"🎯 *{topic_name}* (continued)\n\n" + article_text
-            else:
-                current_message += article_text
-
-        # Add the last message if it has content
-        if current_message.strip():
-            messages.append(current_message.rstrip())
-
-        return messages
-
-    def _format_single_article(self, article: Article, index: int) -> str:
-        """Format a single article for display.
-
-        Args:
-            article: Article to format
-            index: Article index number
-
-        Returns:
-            Formatted article text
-        """
-        # Truncate title if too long
-        title = self._truncate_text(article.title, 80)
-
-        # Format article
-        article_text = f"*{index}. {title}*\n"
-
-        # Add summary if available (placeholder for Phase 3 AI summaries)
-        if hasattr(article, 'summary') and article.summary:
-            summary = self._truncate_text(article.summary, self.max_summary_length)
-            article_text += f"{summary}\n"
-
-        # Add publication date if available
-        if article.published_at:
-            pub_date = article.published_at.strftime("%m/%d %H:%M")
-            article_text += f"📅 {pub_date} • "
-
-        # Add source URL
-        article_text += f"🔗 [Read more]({article.url})\n\n"
-
-        return article_text
-
-    def _truncate_text(self, text: str, max_length: int) -> str:
-        """Truncate text to specified length with ellipsis.
-
-        Args:
-            text: Text to truncate
-            max_length: Maximum length
-
-        Returns:
-            Truncated text
-        """
-        if len(text) <= max_length:
-            return text
-        return text[:max_length - 3] + "..."
 
     async def _send_message(self, chat_id: str, message: str, retries: int = 3) -> bool:
         """Send a message to a chat with retry logic.
@@ -526,7 +416,6 @@ class MessageSender:
         except Exception as e:
             self.logger.error(f"Error getting delivery statistics: {e}")
             return {}
-
 
 # Convenience function for creating message sender
 def create_message_sender(bot: Bot, db_connection: DatabaseConnection) -> MessageSender:

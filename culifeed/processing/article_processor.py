@@ -126,28 +126,37 @@ class ArticleProcessor:
     
     def _clean_title(self, title: str) -> str:
         """Clean common title prefixes and suffixes.
-        
+
         Args:
             title: Original title
-            
+
         Returns:
             Cleaned title
         """
         # Common patterns to remove
         patterns_to_remove = [
             r'^\[.*?\]\s*',  # [Category] prefix
-            r'\s*-\s*.*$',   # - Site name suffix (be careful with this)
             r'\s*\|\s*.*$',  # | Site name suffix
             r'^\w+:\s*',     # Category: prefix
         ]
-        
+
         cleaned = title
         for pattern in patterns_to_remove:
-            # Only apply site name removal if title is long enough
-            if ('|' in pattern or '-' in pattern) and len(cleaned) < 40:
-                continue
             cleaned = re.sub(pattern, '', cleaned).strip()
-        
+
+        # More selective dash pattern - only remove if it looks like a site name
+        # (common site names after dash, not technical terms)
+        dash_site_patterns = [
+            r'\s*-\s*(TechCrunch|Wired|Ars Technica|The Verge|Engadget|Gizmodo|Mashable|ZDNet|CNET|VentureBeat|ReadWrite|TechRadar).*$',
+            r'\s*-\s*(AWS|Amazon Web Services|Microsoft|Google|Apple|IBM|Oracle|Red Hat|VMware).*$',
+            r'\s*-\s*(Blog|News|Website|Site|Portal|Magazine|Daily|Weekly|Times|Post|Herald).*$'
+        ]
+
+        # Only apply dash removal for very specific site name patterns
+        for pattern in dash_site_patterns:
+            if len(cleaned) > 40:  # Only for longer titles
+                cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE).strip()
+
         return cleaned if cleaned else title
     
     def _normalize_url(self, url: str) -> str:

@@ -1,0 +1,45 @@
+[Unit]
+Description=CuliFeed Daily Content Processing Service
+Documentation=https://github.com/chiplonton/culifeed
+After=network-online.target
+Wants=network-online.target
+PartOf=culifeed.target
+
+[Service]
+Type=oneshot
+User=culifeed
+Group=culifeed
+WorkingDirectory=/opt/culifeed
+Environment="CULIFEED_CONFIG=/etc/culifeed/config.yaml"
+EnvironmentFile=/etc/culifeed/.env
+ExecStart=/opt/culifeed/venv/bin/python /opt/culifeed/culifeed/scheduler/daily_scheduler.py
+
+# Resource limits
+LimitNOFILE=4096
+LimitNPROC=2048
+MemoryMax=1G
+TasksMax=100
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/culifeed /var/lib/culifeed /tmp
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictNamespaces=true
+
+# Timeout settings (daily processing can take a while)
+TimeoutStartSec=3600
+TimeoutStopSec=60
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=culifeed-processor
+
+[Install]
+WantedBy=culifeed.target

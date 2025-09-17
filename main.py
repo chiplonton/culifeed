@@ -13,6 +13,8 @@ Usage:
     python main.py --test-feeds              # Test RSS feed connectivity
     python main.py --daily-process           # Run daily processing pipeline
     python main.py --start-bot               # Start Telegram bot service
+    python main.py --full-test               # Run end-to-end system test
+    python main.py --health-check            # Check system health status
 """
 
 import sys
@@ -524,6 +526,207 @@ def show_feeds(chat_id):
 
     except Exception as e:
         console.print(f"[bold red]❌ Error showing feeds: {e}[/bold red]")
+        sys.exit(1)
+
+
+@cli.command()
+@click.option('--channels', help='Comma-separated list of channel IDs to test')
+@click.option('--dry-run', is_flag=True, help='Simulate processing without sending messages')
+def full_test(channels, dry_run):
+    """Run complete end-to-end system test."""
+    console.print("[bold blue]🧪 Running Full System Test[/bold blue]")
+    
+    async def run_full_test():
+        try:
+            from culifeed.scheduler.daily_scheduler import DailyScheduler
+            
+            scheduler = DailyScheduler()
+            
+            if channels:
+                # Test specific channels
+                channel_list = [ch.strip() for ch in channels.split(',')]
+                console.print(f"🎯 Testing specific channels: {channel_list}")
+                # Note: This would require enhancing DailyScheduler to accept specific channels
+                console.print("[yellow]⚠️ Specific channel testing will use full processing for now[/yellow]")
+            
+            console.print(f"🔄 Starting full system test (dry_run: {dry_run})")
+            result = await scheduler.run_daily_processing(dry_run=dry_run)
+            
+            # Display results
+            if result['success']:
+                console.print("[bold green]✅ Full system test PASSED[/bold green]")
+                console.print(f"📊 Channels: {result['channels_processed']}, Articles: {result['total_articles_processed']}")
+                console.print(f"⏱️ Duration: {result['duration_seconds']:.2f}s")
+                
+                if result.get('channel_results'):
+                    # Show detailed channel results
+                    results_table = Table(title="Channel Test Results")
+                    results_table.add_column("Channel", style="cyan")
+                    results_table.add_column("Status", style="green")
+                    results_table.add_column("Articles", style="yellow")
+                    results_table.add_column("Messages", style="blue")
+                    
+                    for ch_result in result['channel_results']:
+                        status = "✅ Success" if ch_result['success'] else "❌ Failed"
+                        results_table.add_row(
+                            ch_result['channel_id'],
+                            status,
+                            str(ch_result['articles_processed']),
+                            str(ch_result.get('messages_sent', 0))
+                        )
+                    
+                    console.print(results_table)
+            else:
+                console.print("[bold red]❌ Full system test FAILED[/bold red]")
+                console.print(f"Error: {result.get('message', 'Unknown error')}")
+                if result.get('errors'):
+                    console.print("\n[bold red]Errors encountered:[/bold red]")
+                    for error in result['errors']:
+                        console.print(f"  • {error['channel_id']}: {error['error']}")
+                sys.exit(1)
+                
+        except Exception as e:
+            console.print(f"[bold red]❌ Full test error: {e}[/bold red]")
+            sys.exit(1)
+    
+    # Run the async function
+    asyncio.run(run_full_test())
+
+
+@cli.command()
+def health_check():
+    """Check system health status."""
+    console.print("[bold blue]🏥 System Health Check[/bold blue]")
+    
+    async def run_health_check():
+        try:
+            from culifeed.scheduler.daily_scheduler import DailyScheduler
+            
+            scheduler = DailyScheduler()
+            status = await scheduler.check_processing_status()
+            
+            # Display health status
+            health_status = status.get('health_status', 'unknown')
+            if health_status == 'healthy':
+                console.print("[bold green]✅ System is HEALTHY[/bold green]")
+            elif health_status == 'warning':
+                console.print("[bold yellow]⚠️ System has WARNINGS[/bold yellow]")
+            else:
+                console.print("[bold red]❌ System is UNHEALTHY[/bold red]")
+            
+            # Health details table
+            health_table = Table(title="Health Status Details")
+            health_table.add_column("Metric", style="cyan")
+            health_table.add_column("Value", style="green")
+            health_table.add_column("Status")
+            
+            processed_today = status.get('processed_today', False)
+            health_table.add_row(
+                "Processed Today", 
+                "Yes" if processed_today else "No",
+                "✅" if processed_today else "❌"
+            )
+            
+            last_success = status.get('last_successful_run')
+            if last_success:
+                from datetime import datetime
+                last_time = datetime.fromisoformat(last_success.replace('Z', '+00:00'))
+                time_ago = datetime.now() - last_time.replace(tzinfo=None)
+                hours_ago = time_ago.total_seconds() / 3600
+                
+                health_table.add_row(
+                    "Last Successful Run",
+                    f"{hours_ago:.1f} hours ago",
+                    "✅" if hours_ago < 30 else "⚠️" if hours_ago < 72 else "❌"
+                )
+            else:
+                health_table.add_row("Last Successful Run", "Never", "❌")
+            
+            success_rate = status.get('recent_success_rate', 0)
+            health_table.add_row(
+                "Recent Success Rate",
+                f"{success_rate}%",
+                "✅" if success_rate >= 80 else "⚠️" if success_rate >= 50 else "❌"
+            )
+            
+            recent_runs = status.get('total_recent_runs', 0)
+            health_table.add_row(
+                "Recent Runs (7 days)",
+                str(recent_runs),
+                "✅" if recent_runs >= 5 else "⚠️" if recent_runs >= 1 else "❌"
+            )
+            
+            console.print(health_table)
+            
+            # Exit with appropriate code for monitoring systems
+            if health_status == 'healthy':
+                sys.exit(0)
+            elif health_status == 'warning':
+                sys.exit(1)
+            else:
+                sys.exit(2)
+                
+        except Exception as e:
+            console.print(f"[bold red]❌ Health check error: {e}[/bold red]")
+            sys.exit(2)
+    
+    # Run the async function
+    asyncio.run(run_health_check())
+
+
+@cli.command()
+@click.option('--dry-run', is_flag=True, help='Simulate processing without sending messages')
+def daily_process(dry_run):
+    """Run daily processing pipeline."""
+    console.print("[bold blue]📅 Daily Processing Pipeline[/bold blue]")
+    
+    async def run_daily():
+        try:
+            from culifeed.scheduler.daily_scheduler import DailyScheduler
+            
+            scheduler = DailyScheduler()
+            console.print(f"🔄 Starting daily processing (dry_run: {dry_run})")
+            
+            result = await scheduler.run_daily_processing(dry_run=dry_run)
+            
+            if result['success']:
+                console.print("[bold green]✅ Daily processing completed successfully![/bold green]")
+                console.print(f"📊 Processed {result['channels_processed']} channels")
+                console.print(f"📰 Processed {result['total_articles_processed']} articles")
+                console.print(f"⏱️ Duration: {result['duration_seconds']:.2f} seconds")
+                
+                if result.get('channel_results'):
+                    successful = result.get('successful_channels', 0)
+                    failed = result.get('failed_channels', 0)
+                    console.print(f"📈 Results: {successful} successful, {failed} failed")
+                
+                sys.exit(0)
+            else:
+                console.print("[bold red]❌ Daily processing failed![/bold red]")
+                console.print(f"Error: {result.get('message', 'Unknown error')}")
+                sys.exit(1)
+                
+        except Exception as e:
+            console.print(f"[bold red]❌ Daily processing error: {e}[/bold red]")
+            sys.exit(1)
+    
+    # Run the async function
+    asyncio.run(run_daily())
+
+
+@cli.command()
+def start_bot():
+    """Start Telegram bot service."""
+    console.print("[bold blue]🤖 Starting Telegram Bot Service[/bold blue]")
+    
+    try:
+        # This would start the long-running bot service
+        # Implementation depends on the actual bot service architecture
+        console.print("[yellow]⚠️ Bot service implementation pending[/yellow]")
+        console.print("Use: python run_bot.py to start the bot manually")
+        
+    except Exception as e:
+        console.print(f"[bold red]❌ Bot startup error: {e}[/bold red]")
         sys.exit(1)
 
 
