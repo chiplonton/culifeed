@@ -141,13 +141,15 @@ class TestArticleProcessor:
         """Test title cleaning functionality."""
         test_cases = [
             ("[Tech] New Article", "New Article"),  # Removes [Category] prefix
-            ("Article Title | Site Name Really Long String to Exceed 40 chars", "Article Title"),  # Removes | suffix if long
-            ("Article Title - Site Name Really Long String to Exceed 40 chars", "Article Title"),  # Removes - suffix if long
+            ("Article Title | Site Name Really Long String to Exceed 40 chars", "Article Title"),  # Removes | suffix
             ("News: Breaking Story", "Breaking Story"),  # Removes Category: prefix
             ("Regular Title", "Regular Title"),  # No patterns to clean
-            ("Short | Site", "Short | Site"),  # Keeps | suffix if short (< 40 chars)
+            ("Short | Site", "Short"),  # Now removes | suffix regardless of length
+            ("Building resilient multi-tenant systems with Amazon SQS fair queues", "Building resilient multi-tenant systems with Amazon SQS fair queues"),  # Preserves technical terms
+            ("Advanced Machine Learning Techniques and Neural Networks - TechCrunch", "Advanced Machine Learning Techniques and Neural Networks"),  # Removes known site names
+            ("Multi-rack and multiple logical AWS Outposts architecture considerations for resiliency", "Multi-rack and multiple logical AWS Outposts architecture considerations for resiliency"),  # Preserves technical terms
         ]
-        
+
         for input_title, expected in test_cases:
             article = Article(title=input_title, url="https://test.com", source_feed="https://test.com/feed.xml")
             cleaned = article_processor._clean_title(article.title)

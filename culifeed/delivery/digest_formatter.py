@@ -44,10 +44,10 @@ class DigestFormatter:
 
         # Content limits per format
         self.format_limits = {
-            DigestFormat.COMPACT: {'articles_per_topic': 3, 'title_length': 60, 'summary_length': 100},
-            DigestFormat.DETAILED: {'articles_per_topic': 5, 'title_length': 80, 'summary_length': 200},
-            DigestFormat.SUMMARY: {'articles_per_topic': 8, 'title_length': 70, 'summary_length': 0},
-            DigestFormat.HEADLINES: {'articles_per_topic': 10, 'title_length': 90, 'summary_length': 0}
+            DigestFormat.COMPACT: {'articles_per_topic': 3, 'title_length': 120, 'summary_length': 100},
+            DigestFormat.DETAILED: {'articles_per_topic': 5, 'title_length': 120, 'summary_length': 200},
+            DigestFormat.SUMMARY: {'articles_per_topic': 8, 'title_length': 120, 'summary_length': 0},
+            DigestFormat.HEADLINES: {'articles_per_topic': 10, 'title_length': 120, 'summary_length': 0}
         }
 
     def format_daily_digest(self, articles_by_topic: Dict[str, List[Article]],
@@ -165,22 +165,27 @@ class DigestFormatter:
 
         today = datetime.now(timezone.utc).strftime("%B %d, %Y")
 
+        # Get simplified date
+        today_simple = "Today" if datetime.now(timezone.utc).date() == datetime.now(timezone.utc).date() else today
+
         # Format varies by type
         if format_type == DigestFormat.COMPACT:
             header = (
-                f"📰 *Daily Brief* • {today}\n"
-                f"{topic_count} topics • {total_articles} articles\n\n"
+                f"🌟 *Your Daily Brief*\n"
+                f"📅 {today_simple} • {total_articles} fresh articles\n\n"
             )
         elif format_type == DigestFormat.HEADLINES:
             header = (
-                f"📈 *Headlines* • {today}\n"
-                f"Top stories across {topic_count} topics\n\n"
+                f"📈 *Top Headlines*\n"
+                f"📅 {today_simple} • {topic_count} topics\n\n"
             )
         else:  # DETAILED or SUMMARY
+            reading_time = max(1, total_articles * 0.5)
             header = (
-                f"📰 *CuliFeed Daily Digest*\n"
-                f"📅 {today}\n\n"
-                f"🎯 *{topic_count}* topics • 📄 *{total_articles}* curated articles\n\n"
+                f"🌟 *Your Daily Tech Digest*\n"
+                f"📅 {today_simple} • {today}\n\n"
+                f"🎯 *{total_articles}* curated articles from *{topic_count}* topic{'s' if topic_count != 1 else ''}\n"
+                f"⏱️ ~{reading_time:.0f} min read • 📡 Fresh content\n\n"
             )
 
         # Add topic overview for detailed format
@@ -209,15 +214,16 @@ class DigestFormatter:
         selected_articles = articles[:article_limit]
 
         if format_type == DigestFormat.HEADLINES:
-            # Compact headlines format
-            message = f"📊 *{topic_name}*\n\n"
+            # Compact headlines format with better bullets
+            message = f"🎯 *{topic_name}* ({len(selected_articles)} articles)\n\n"
             for i, article in enumerate(selected_articles, 1):
                 title = self._truncate_text(article.title, limits['title_length'])
-                message += f"• {title}\n"
+                message += f"▶️ {title}\n"
 
             if len(articles) > article_limit:
-                message += f"... and {len(articles) - article_limit} more\n"
+                message += f"\n💫 ... and {len(articles) - article_limit} more articles\n"
 
+            message += "\n━━━━━━━━━━━━━━━━━━━━\n"
             messages.append(message)
 
         elif format_type == DigestFormat.SUMMARY:
@@ -266,26 +272,33 @@ class DigestFormatter:
             Formatted article text
         """
         title = self._truncate_text(article.title, limits['title_length'])
-        article_text = f"*{index}. {title}*\n"
+        article_text = f"*{index}. {title}*\n\n"
 
-        # Add summary for detailed format
+        # Add summary for detailed format with improved icon
         if format_type == DigestFormat.DETAILED and limits['summary_length'] > 0:
             if hasattr(article, 'summary') and article.summary:
                 summary = self._truncate_text(article.summary, limits['summary_length'])
-                article_text += f"{summary}\n"
+                article_text += f"💡 {summary}\n\n"
             elif article.content:
                 content_preview = self._extract_content_preview(
                     article.content, limits['summary_length']
                 )
                 if content_preview:
-                    article_text += f"{content_preview}\n"
+                    article_text += f"💡 {content_preview}\n\n"
 
-        # Add metadata
+        # Add metadata with improved formatting
         metadata_parts = []
 
         if article.published_at:
-            pub_date = article.published_at.strftime("%m/%d %H:%M")
-            metadata_parts.append(f"📅 {pub_date}")
+            # Use "Today" for today's articles, otherwise short format
+            today = datetime.now(timezone.utc).date()
+            article_date = article.published_at.date()
+            if article_date == today:
+                time_str = article.published_at.strftime("%H:%M")
+                metadata_parts.append(f"🕒 Today {time_str}")
+            else:
+                pub_date = article.published_at.strftime("%m/%d %H:%M")
+                metadata_parts.append(f"🕒 {pub_date}")
 
         # Add source for detailed format
         if format_type == DigestFormat.DETAILED:
@@ -296,8 +309,12 @@ class DigestFormatter:
         if metadata_parts:
             article_text += " • ".join(metadata_parts) + "\n"
 
-        # Add read link
-        article_text += f"🔗 [Read more]({article.url})\n\n"
+        # Add read link with better CTA
+        article_text += f"🔗 [Read Full Article]({article.url})\n\n"
+
+        # Add visual separator for detailed format
+        if format_type == DigestFormat.DETAILED:
+            article_text += "━━━━━━━━━━━━━━━━━━━━\n\n"
 
         return article_text
 
@@ -319,8 +336,10 @@ class DigestFormatter:
         estimated_reading_time = max(1, total_articles * 0.5)  # 30 seconds per article
 
         footer = (
-            f"📖 *Reading time: ~{estimated_reading_time:.0f} minutes*\n\n"
-            f"💡 Powered by CuliFeed • Daily curation at your service"
+            f"📚 *Enjoyed this digest?*\n"
+            f"Forward to colleagues or save ⭐ articles you found useful\n\n"
+            f"🤖 Powered by CuliFeed • Daily AI curation\n"
+            f"⏱️ Total reading time: ~{estimated_reading_time:.0f} minutes"
         )
 
         return footer
@@ -412,6 +431,16 @@ class DigestFormatter:
         """
         if len(text) <= max_length:
             return text
+
+        # For longer max_length, try to break at word boundaries
+        if max_length > 10:
+            truncate_pos = max_length - 3
+            last_space = text.rfind(' ', 0, truncate_pos)
+
+            # Only break at word boundary if it's not too short
+            if last_space > max_length // 2:
+                return text[:last_space] + "..."
+
         return text[:max_length - 3] + "..."
 
     # ================================================================

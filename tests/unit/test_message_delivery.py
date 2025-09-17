@@ -194,46 +194,7 @@ class TestMessageSender:
         assert result.messages_sent == 1
         assert result.articles_delivered == 0
 
-    def test_format_digest_header(self, message_sender, sample_articles):
-        """Test digest header formatting."""
-        articles_by_topic = {
-            'AI': sample_articles[:1],
-            'Cloud': sample_articles[1:]
-        }
-
-        header = message_sender._format_digest_header(articles_by_topic)
-
-        assert 'CuliFeed Daily Digest' in header
-        assert '*2*' in header  # Count is formatted with asterisks
-        assert 'curated articles' in header
-
-    def test_format_topic_articles(self, message_sender, sample_articles):
-        """Test topic articles formatting."""
-        topic_name = "AI"
-        articles = sample_articles[:1]
-
-        messages = message_sender._format_topic_articles(topic_name, articles)
-
-        assert len(messages) >= 1
-        assert topic_name in messages[0]
-        assert articles[0].title in messages[0]
-
-    def test_format_single_article(self, message_sender, sample_articles):
-        """Test single article formatting."""
-        article = sample_articles[0]
-        formatted = message_sender._format_single_article(article, 1)
-
-        assert article.title in formatted
-        assert str(article.url) in formatted  # URL needs to be converted to string
-        assert '1.' in formatted
-
-    def test_truncate_text(self, message_sender):
-        """Test text truncation."""
-        long_text = "This is a very long text that should be truncated"
-        truncated = message_sender._truncate_text(long_text, 20)
-
-        assert len(truncated) <= 20
-        assert truncated.endswith('...')
+    # Note: Formatting methods moved to DigestFormatter - tests are there
 
     def test_get_delivery_statistics(self, message_sender, db_connection):
         """Test delivery statistics retrieval."""
@@ -298,7 +259,7 @@ class TestDigestFormatter:
         messages = formatter.format_daily_digest(articles_by_topic, DigestFormat.DETAILED)
 
         assert len(messages) >= 2  # Header + content
-        assert 'CuliFeed Daily Digest' in messages[0]
+        assert 'Your Daily Tech Digest' in messages[0]
         assert any('AI' in msg for msg in messages)
         assert any('Cloud' in msg for msg in messages)
 
