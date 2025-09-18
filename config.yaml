@@ -14,6 +14,8 @@ processing:
   batch_size: 10                       # Articles to process in one AI request
   parallel_feeds: 5                    # Concurrent RSS feed fetches
   max_content_length: 2000             # Max content length for AI analysis
+  ai_relevance_threshold: 0.5          # Minimum AI relevance score to include article  
+  ai_summary_threshold: 0.5            # Minimum AI relevance score to generate summary (Liberal mode)
 
 # Cost Controls and Limits
 limits:
@@ -57,7 +59,7 @@ ai:
   
   # Model Configuration
   gemini_model: "gemini-2.5-flash-lite"  # Gemini model
-  groq_model: "llama3-8b-8192"           # Groq model
+  groq_model: "llama-3.1-8b-instant"     # Groq model
   openai_model: "gpt-4o-mini"            # OpenAI model
   
   temperature: 0.1                       # AI temperature (0.0-2.0)

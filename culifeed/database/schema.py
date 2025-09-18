@@ -76,7 +76,12 @@ class DatabaseSchema:
                 published_at TIMESTAMP,
                 source_feed TEXT NOT NULL,
                 content_hash TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                summary TEXT,
+                ai_relevance_score REAL CHECK (ai_relevance_score BETWEEN 0.0 AND 1.0),
+                ai_confidence REAL CHECK (ai_confidence BETWEEN 0.0 AND 1.0),
+                ai_provider TEXT,
+                ai_reasoning TEXT
             )
         """)
     

@@ -55,6 +55,13 @@ class Article(BaseModel):
     source_feed: str = Field(..., min_length=1, description="Source RSS feed URL")
     content_hash: str = Field(default="", description="Content hash for deduplication")
     created_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
+    
+    # AI Analysis Fields
+    summary: Optional[str] = Field(default=None, description="AI-generated summary")
+    ai_relevance_score: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="AI relevance score")
+    ai_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="AI confidence score")
+    ai_provider: Optional[str] = Field(default=None, description="AI provider used for analysis")
+    ai_reasoning: Optional[str] = Field(default=None, description="AI reasoning for relevance score")
 
     def __init__(self, **data):
         """Initialize article with auto-generated content hash."""

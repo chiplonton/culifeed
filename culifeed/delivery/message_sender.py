@@ -227,14 +227,17 @@ class MessageSender:
                     topic_data = dict(topic_row)
                     topic_name = topic_data['name']
 
-                    # For now, get recent articles from feeds for this channel
-                    # In Phase 3, this would get AI-processed articles
+                    # Get AI-processed articles from feeds for this channel
+                    # Prioritize articles with AI analysis, fallback to recent articles
                     article_rows = conn.execute("""
                         SELECT a.* FROM articles a
                         JOIN feeds f ON a.source_feed = f.url
                         WHERE f.chat_id = ? AND f.active = ?
                         AND datetime(a.created_at) >= datetime('now', '-1 days')
-                        ORDER BY a.created_at DESC
+                        ORDER BY 
+                            CASE WHEN a.ai_relevance_score IS NOT NULL THEN 0 ELSE 1 END,
+                            a.ai_relevance_score DESC,
+                            a.created_at DESC
                         LIMIT ?
                     """, (chat_id, True, limit_per_topic)).fetchall()
 

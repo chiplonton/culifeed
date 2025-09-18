@@ -44,6 +44,8 @@ class ProcessingSettings(BaseModel):
     parallel_feeds: int = Field(default=5, ge=1, le=20, description="Concurrent feed fetches")
     cache_embeddings: bool = Field(default=True, description="Cache article embeddings")
     max_content_length: int = Field(default=2000, ge=500, le=10000, description="Max content length for AI processing")
+    ai_relevance_threshold: float = Field(default=0.5, ge=0.0, le=1.0, description="Minimum AI relevance score to include article")
+    ai_summary_threshold: float = Field(default=0.6, ge=0.0, le=1.0, description="Minimum AI relevance score to generate summary")
     
     @field_validator('daily_run_hour')
     @classmethod
@@ -117,7 +119,7 @@ class AISettings(BaseModel):
     groq_api_key: Optional[str] = Field(default=None, description="Groq API key")
     openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
     gemini_model: str = Field(default="gemini-2.5-flash-lite", description="Gemini model to use")
-    groq_model: str = Field(default="llama3-8b-8192", description="Groq model to use")
+    groq_model: str = Field(default="llama-3.1-8b-instant", description="Groq model to use")
     openai_model: str = Field(default="gpt-4o-mini", description="OpenAI model to use")
     temperature: float = Field(default=0.1, ge=0.0, le=2.0, description="AI temperature setting")
     max_tokens: int = Field(default=500, ge=50, le=2000, description="Maximum tokens per response")
@@ -383,7 +385,7 @@ ai:
   
   # Model Configuration
   gemini_model: "gemini-2.5-flash-lite"  # Gemini model
-  groq_model: "llama3-8b-8192"           # Groq model
+  groq_model: "llama-3.1-8b-instant"     # Groq model
   openai_model: "gpt-4o-mini"            # OpenAI model
   
   temperature: 0.1                       # AI temperature (0.0-2.0)

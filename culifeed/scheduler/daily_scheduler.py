@@ -83,6 +83,11 @@ class DailyScheduler:
             # Phase 1: Pre-processing health checks
             await self._perform_health_checks()
             
+            # Phase 1.5: Initialize Bot for message delivery
+            if self.bot and not dry_run:
+                await self.bot.initialize()
+                self.logger.debug("Bot initialized for message delivery")
+            
             # Phase 2: Get active channels
             channels = await self._get_active_channels()
             if not channels:
@@ -143,11 +148,24 @@ class DailyScheduler:
                 'success': result_summary['success']
             })
             
+            # Cleanup: Shutdown bot if initialized
+            if self.bot and not dry_run:
+                await self.bot.shutdown()
+                self.logger.debug("Bot shutdown completed")
+            
             return result_summary
             
         except Exception as e:
             error_msg = f"Daily processing failed: {e}"
             self.logger.error(error_msg, exc_info=True)
+            
+            # Cleanup: Shutdown bot if initialized
+            if self.bot and not dry_run:
+                try:
+                    await self.bot.shutdown()
+                except Exception as shutdown_error:
+                    self.logger.warning(f"Bot shutdown error: {shutdown_error}")
+            
             return self._create_result_summary(success=False, message=error_msg)
     
     async def _perform_health_checks(self) -> None:
@@ -249,7 +267,7 @@ class DailyScheduler:
             
             # Step 2: Send digest to channel (if not dry run)
             messages_sent = 0
-            if not dry_run and processing_result.articles_ready_for_ai > 0:
+            if not dry_run and processing_result.successful_feed_fetches > 0:
                 try:
                     digest_result = await self.message_sender.deliver_daily_digest(
                         channel['chat_id'],
