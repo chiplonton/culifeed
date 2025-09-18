@@ -337,15 +337,10 @@ class TopicCommandHandler:
         if len(args) < 1:
             return None
 
-        # Single argument - AI keyword generation
-        if len(args) == 1:
-            topic_name = args[0].strip()
-            return topic_name, None  # None indicates AI generation
-
-        # Join all args and split by comma to handle various formats
+        # Join all args to analyze the full input
         full_text = " ".join(args)
 
-        # Try to split by comma first
+        # Check if input contains commas (explicit manual keyword format)
         if "," in full_text:
             # Format: /addtopic AI machine learning, artificial intelligence, ML
             parts = [part.strip() for part in full_text.split(",")]
@@ -354,29 +349,26 @@ class TopicCommandHandler:
                 keywords = parts[1:]
                 return topic_name, keywords
 
-        # Try space-separated format
-        if len(args) >= 2:
-            # Format: /addtopic AI "machine learning" "artificial intelligence"
-            topic_name = args[0]
-            keywords = args[1:]
-            return topic_name, keywords
-
-        return None
+        # No commas found - treat entire input as topic name for AI generation
+        # This handles both single words and multi-word topic names
+        topic_name = full_text.strip()
+        return topic_name, None  # None indicates AI generation
 
     async def _send_add_topic_help(self, update: Update) -> None:
         """Send help message for /addtopic command."""
         help_message = (
             "❓ *How to add a topic:*\n\n"
-            "*🤖 AI Generation:* `/addtopic <name>`\n"
-            "*📝 Manual:* `/addtopic <name> <keyword1, keyword2, keyword3>`\n\n"
+            "*🤖 AI Generation:* `/addtopic <topic_name>`\n"
+            "*📝 Manual Keywords:* `/addtopic <topic_name>, <keyword1>, <keyword2>, <keyword3>`\n\n"
             "*Examples:*\n"
-            "• `/addtopic AI machine learning, artificial intelligence, ML`\n"
-            "• `/addtopic Cloud AWS, Azure, GCP, cloud computing`\n"
-            "• `/addtopic Python python programming, django, flask`\n\n"
+            "• `/addtopic Machine Learning` - AI will generate keywords\n"
+            "• `/addtopic AWS ECS Performance` - AI will generate keywords\n"
+            "• `/addtopic Cloud, AWS, Azure, GCP, kubernetes` - Manual keywords\n"
+            "• `/addtopic Python, python programming, django, flask` - Manual keywords\n\n"
             "*Tips:*\n"
-            "• Use specific keywords for better matching\n"
-            "• Separate keywords with commas\n"
-            "• Topic names should be short and descriptive"
+            "• No commas = AI generates keywords automatically\n"
+            "• With commas = Manual keyword specification\n"
+            "• AI considers your existing topics for context"
         )
         await update.message.reply_text(help_message, parse_mode='Markdown')
 
