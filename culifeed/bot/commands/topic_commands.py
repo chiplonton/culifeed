@@ -323,10 +323,21 @@ class TopicCommandHandler:
             gemini_provider = GeminiProvider(settings.ai.gemini_api_key)
             response = await gemini_provider._make_gemini_request(prompt)
             
-            if not response or not response.text:
-                raise AIError("No AI response")
+            # Parse response - handle safety blocks and empty responses
+            try:
+                response_text = response.text
+            except ValueError as e:
+                # Handle cases where response is blocked by safety filters or empty
+                if "finish_reason" in str(e):
+                    self.logger.warning(f"Gemini response blocked or empty: {e}")
+                    raise AIError("Content blocked by safety filters")
+                else:
+                    raise
+            
+            if not response_text:
+                raise AIError("No AI response text")
                 
-            keywords = [k.strip().strip('"\'') for k in response.text.split(",") if k.strip()]
+            keywords = [k.strip().strip('"\'') for k in response_text.split(",") if k.strip()]
             return keywords[:7] if keywords else [topic_name.lower()]
             
         except Exception as e:
