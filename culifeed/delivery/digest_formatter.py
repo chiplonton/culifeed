@@ -33,19 +33,19 @@ class DigestFormat(str, Enum):
 class DigestFormatter:
     """Formats curated content into various digest styles."""
 
-    def __init__(self):
-        """Initialize digest formatter."""
-        self.settings = get_settings()
-        self.logger = get_logger_for_component('digest_formatter')
-
-        # Telegram formatting limits
-        self.max_message_length = 4096
-        self.max_caption_length = 1024
-
-        # Content limits per format
+    def __init__(self, max_message_length: int = 4096):
+        """Initialize the digest formatter.
+        
+        Args:
+            max_message_length: Maximum length for a single message
+        """
+        self.max_message_length = max_message_length
+        self.logger = get_logger_for_component('formatter')
+        
+        # Format-specific limits with expanded summary lengths for better AI summary display
         self.format_limits = {
             DigestFormat.COMPACT: {'articles_per_topic': 3, 'title_length': 120, 'summary_length': 100},
-            DigestFormat.DETAILED: {'articles_per_topic': 5, 'title_length': 120, 'summary_length': 200},
+            DigestFormat.DETAILED: {'articles_per_topic': 5, 'title_length': 120, 'summary_length': 700},  # Increased for full AI summaries
             DigestFormat.SUMMARY: {'articles_per_topic': 8, 'title_length': 120, 'summary_length': 0},
             DigestFormat.HEADLINES: {'articles_per_topic': 10, 'title_length': 120, 'summary_length': 0}
         }
@@ -274,11 +274,14 @@ class DigestFormatter:
         title = self._truncate_text(article.title, limits['title_length'])
         article_text = f"*{index}. {title}*\n\n"
 
-        # Add summary for detailed format with improved icon
+        # Add AI summary for detailed format with improved icon
         if format_type == DigestFormat.DETAILED and limits['summary_length'] > 0:
+            # Prioritize AI-generated summary over content preview
             if hasattr(article, 'summary') and article.summary:
                 summary = self._truncate_text(article.summary, limits['summary_length'])
-                article_text += f"💡 {summary}\n\n"
+                # Add AI indicator if this is an AI-generated summary
+                ai_indicator = "🤖 " if hasattr(article, 'ai_provider') and article.ai_provider else ""
+                article_text += f"💡 {ai_indicator}{summary}\n\n"
             elif article.content:
                 content_preview = self._extract_content_preview(
                     article.content, limits['summary_length']

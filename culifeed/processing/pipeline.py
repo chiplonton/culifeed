@@ -23,6 +23,10 @@ from .feed_manager import FeedManager
 from .article_processor import ArticleProcessor, DeduplicationStats
 from .pre_filter import PreFilterEngine, FilterResult
 
+# AI Integration
+from ..ai.ai_manager import AIManager
+from ..ai.providers.base import AIResult
+
 
 @dataclass
 class PipelineResult:
@@ -73,6 +77,9 @@ class ProcessingPipeline:
         self.feed_manager = FeedManager(db_connection)
         self.article_processor = ArticleProcessor(db_connection)
         self.pre_filter = PreFilterEngine()
+        
+        # AI Integration - Initialize AI Manager
+        self.ai_manager = AIManager()
     
     async def process_channel(self, chat_id: str, max_articles_per_topic: int = None) -> PipelineResult:
         """Process all feeds for a single channel.
@@ -161,9 +168,9 @@ class ProcessingPipeline:
             
             self.logger.info(f"After pre-filtering: {len(passed_articles)} articles ready for AI")
             
-            # Step 7: Store articles and prepare for AI processing
-            ai_ready_articles = self._prepare_for_ai_processing(
-                passed_articles, filter_results, chat_id, max_articles_per_topic
+            # Step 7: AI Analysis and Processing
+            ai_processed_articles = await self._ai_analysis_and_processing(
+                passed_articles, filter_results, topics, max_articles_per_topic
             )
             
             # Step 8: Calculate final metrics
@@ -171,13 +178,13 @@ class ProcessingPipeline:
             
             result = self._create_result(
                 chat_id, len(feeds), successful_fetches, len(all_articles),
-                len(unique_articles), len(passed_articles), len(ai_ready_articles),
+                len(unique_articles), len(passed_articles), len(ai_processed_articles),
                 total_processing_time, fetch_duration, dedup_stats, topic_matches, errors
             )
             
             self.logger.info(
                 f"Pipeline complete for channel {chat_id}: "
-                f"{len(ai_ready_articles)} articles ready for AI processing "
+                f"{len(ai_processed_articles)} articles ready for AI processing "
                 f"in {total_processing_time:.2f}s"
             )
             
@@ -248,77 +255,131 @@ class ProcessingPipeline:
             
             return topics
     
-    def _prepare_for_ai_processing(self, articles: List[Article], filter_results: List[FilterResult], 
-                                 chat_id: str, max_per_topic: int) -> List[Article]:
-        """Prepare articles for AI processing with topic-based limiting.
+    async def _ai_analysis_and_processing(self, articles: List[Article], filter_results: List[FilterResult],
+                                       topics: List[Topic], max_per_topic: int) -> List[Article]:
+        """Perform AI analysis and processing on filtered articles.
         
         Args:
-            articles: Filtered articles
-            filter_results: Pre-filter results
-            chat_id: Channel chat ID
+            articles: List of articles to analyze
+            filter_results: Pre-filtering results for articles
+            topics: Topics for relevance analysis
             max_per_topic: Maximum articles per topic
             
         Returns:
-            List of articles ready for AI processing
+            List of articles that passed AI analysis
         """
-        # Group articles by their best matching topic
-        topic_articles = {}
-        result_map = {r.article.id: r for r in filter_results if r.passed_filter}
+        if not articles or not topics:
+            self.logger.info("No articles or topics for AI analysis")
+            return []
         
-        for article in articles:
-            result = result_map.get(article.id)
-            if result and result.best_match_topic:
-                topic = result.best_match_topic
-                if topic not in topic_articles:
-                    topic_articles[topic] = []
-                topic_articles[topic].append((article, result.best_match_score))
+        self.logger.info(f"Starting AI analysis for {len(articles)} articles across {len(topics)} topics")
         
-        # Select top articles per topic
-        ai_ready_articles = []
-        for topic, topic_article_scores in topic_articles.items():
-            # Sort by relevance score (descending)
-            topic_article_scores.sort(key=lambda x: x[1], reverse=True)
+        ai_processed_articles = []
+        
+        # Group articles by topic for processing
+        for topic in topics:
+            topic_name = topic.name
+            self.logger.debug(f"Processing AI analysis for topic: {topic_name}")
             
-            # Take top N articles for this topic
-            selected = topic_article_scores[:max_per_topic]
-            ai_ready_articles.extend([article for article, score in selected])
+            # Get articles that passed pre-filtering for this topic
+            topic_articles = []
+            for article, filter_result in zip(articles, filter_results):
+                if filter_result.passed_filter and topic_name in filter_result.matched_topics:
+                    topic_articles.append(article)
             
-            self.logger.debug(
-                f"Selected {len(selected)} articles for topic '{topic}' "
-                f"(scores: {[f'{score:.3f}' for _, score in selected[:3]]}"
-                f"{'...' if len(selected) > 3 else ''})"
+            if not topic_articles:
+                self.logger.debug(f"No articles passed pre-filtering for topic '{topic_name}'")
+                continue
+            
+            # Limit articles per topic and sort by publication date
+            topic_articles = sorted(topic_articles, key=lambda a: a.published_at, reverse=True)[:max_per_topic]
+            
+            # Process articles with AI
+            selected = [(article, None) for article in topic_articles]  # Simplified selection
+            
+            for article, _ in selected:
+                try:
+                    # AI relevance analysis
+                    ai_result = await self.ai_manager.analyze_relevance(article, topic)
+                    
+                    if ai_result.success and ai_result.relevance_score >= self.settings.processing.ai_relevance_threshold:
+                        # Generate summary if relevance is high enough
+                        if ai_result.relevance_score >= self.settings.processing.ai_summary_threshold:
+                            try:
+                                summary_result = await self.ai_manager.generate_summary(article)  # Pass article object, not article.content
+                                if summary_result and hasattr(summary_result, 'summary') and summary_result.summary:
+                                    article.summary = summary_result.summary
+                                else:
+                                    article.summary = None
+                            except Exception as e:
+                                self.logger.warning(f"Summary generation failed for article {article.id}: {e}")
+                                article.summary = None
+                        
+                        # Store AI analysis results in article
+                        article.ai_relevance_score = ai_result.relevance_score
+                        article.ai_confidence = ai_result.confidence
+                        article.ai_provider = ai_result.provider
+                        article.ai_reasoning = ai_result.reasoning
+                        
+                        ai_processed_articles.append(article)
+                        
+                        self.logger.debug(
+                            f"AI processed article '{article.title}' for topic '{topic_name}': "
+                            f"relevance={ai_result.relevance_score:.3f}, "
+                            f"confidence={ai_result.confidence:.3f}, "
+                            f"provider={ai_result.provider}"
+                        )
+                    else:
+                        self.logger.debug(
+                            f"Article '{article.title}' rejected by AI: "
+                            f"relevance={ai_result.relevance_score:.3f} < threshold={self.settings.processing.ai_relevance_threshold}"
+                        )
+                        
+                except Exception as e:
+                    self.logger.error(f"AI processing failed for article {article.id}: {e}")
+                    # Include article without AI analysis if AI fails
+                    ai_processed_articles.append(article)
+            
+            self.logger.info(
+                f"AI processed {len([a for a, _ in selected if any(proc.id == a.id for proc in ai_processed_articles)])} "
+                f"out of {len(selected)} articles for topic '{topic_name}'"
             )
         
-        # Store articles in database for AI processing
-        self._store_articles_for_processing(ai_ready_articles)
+        # Store processed articles in database
+        if ai_processed_articles:
+            self._store_articles_for_processing(ai_processed_articles)
         
-        return ai_ready_articles
+        self.logger.info(f"AI analysis complete: {len(ai_processed_articles)} articles ready for delivery")
+        
+        return ai_processed_articles
     
     def _store_articles_for_processing(self, articles: List[Article]) -> None:
-        """Store articles in database for later AI processing.
+        """Store articles in database with AI analysis results.
         
         Args:
-            articles: Articles to store
+            articles: Articles to store with AI analysis
         """
         if not articles:
             return
         
         with self.db.get_connection() as conn:
             for article in articles:
-                # Insert or update article
+                # Insert or update article with AI fields
                 conn.execute("""
                     INSERT OR REPLACE INTO articles 
-                    (id, title, url, content, published_at, source_feed, content_hash, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, title, url, content, published_at, source_feed, content_hash, created_at,
+                     summary, ai_relevance_score, ai_confidence, ai_provider, ai_reasoning)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     article.id, article.title, str(article.url), article.content,
                     article.published_at, article.source_feed, article.content_hash,
-                    article.created_at
+                    article.created_at, article.summary, article.ai_relevance_score,
+                    article.ai_confidence, article.ai_provider, article.ai_reasoning
                 ))
             
             conn.commit()
         
-        self.logger.info(f"Stored {len(articles)} articles for AI processing")
+        self.logger.info(f"Stored {len(articles)} articles with AI analysis results")
     
     def _create_empty_result(self, chat_id: str, errors: List[str]) -> PipelineResult:
         """Create empty pipeline result."""
