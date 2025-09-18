@@ -194,8 +194,21 @@ class TopicCommandHandler:
             chat_id = str(update.effective_chat.id)
             args = context.args
 
+            # Get the appropriate message object for reply
+            message = None
+            if update.message:
+                message = update.message
+            elif update.effective_message:
+                message = update.effective_message
+            elif update.callback_query and update.callback_query.message:
+                message = update.callback_query.message
+
+            if not message:
+                self.logger.warning("No message object available for remove topic response")
+                return
+
             if not args:
-                await update.message.reply_text(
+                await message.reply_text(
                     "❌ *Missing topic name*\n\n"
                     "Usage: `/removetopic <topic_name>`\n"
                     "Example: `/removetopic AI`\n\n"
@@ -209,7 +222,7 @@ class TopicCommandHandler:
             # Find the topic
             topic = self.topic_repo.get_topic_by_name(chat_id, topic_name)
             if not topic:
-                await update.message.reply_text(
+                await message.reply_text(
                     f"❌ Topic *'{topic_name}'* not found.\n\n"
                     f"Use `/topics` to see all your topics.",
                     parse_mode='Markdown'
@@ -220,13 +233,13 @@ class TopicCommandHandler:
             success = self.topic_repo.delete_topic(topic.id)
 
             if success:
-                await update.message.reply_text(
+                await message.reply_text(
                     f"✅ Topic *'{topic_name}'* removed successfully!",
                     parse_mode='Markdown'
                 )
                 self.logger.info(f"Removed topic '{topic_name}' from channel {chat_id}")
             else:
-                await update.message.reply_text(
+                await message.reply_text(
                     "❌ Failed to remove topic. Please try again.",
                     parse_mode='Markdown'
                 )
@@ -310,39 +323,20 @@ class TopicCommandHandler:
             existing_topics = self.topic_repo.get_topics_for_channel(chat_id, active_only=True)
             context = f" User interests: {', '.join([t.name for t in existing_topics[:5]])}." if existing_topics else ""
             
-            prompt = f"Generate 5-7 relevant keywords for '{topic_name}'.{context} Return comma-separated keywords only."
+            # Use AIManager with proper fallback strategy - same as other AI operations
+            result = await self.ai_manager.generate_keywords(topic_name, context, max_keywords=7)
             
-            # Access the Gemini provider directly since AIManager doesn't have generate_content
-            from ...ai.providers.gemini_provider import GeminiProvider
-            from ...config.settings import get_settings
-            
-            settings = get_settings()
-            if not settings.ai.gemini_api_key:
-                raise AIError("No Gemini API key configured")
-            
-            gemini_provider = GeminiProvider(settings.ai.gemini_api_key)
-            response = await gemini_provider._make_gemini_request(prompt)
-            
-            # Parse response - handle safety blocks and empty responses
-            try:
-                response_text = response.text
-            except ValueError as e:
-                # Handle cases where response is blocked by safety filters or empty
-                if "finish_reason" in str(e):
-                    self.logger.warning(f"Gemini response blocked or empty: {e}")
-                    raise AIError("Content blocked by safety filters")
-                else:
-                    raise
-            
-            if not response_text:
-                raise AIError("No AI response text")
-                
-            keywords = [k.strip().strip('"\'') for k in response_text.split(",") if k.strip()]
-            return keywords[:7] if keywords else [topic_name.lower()]
+            if result.success and result.content:
+                keywords = result.content if isinstance(result.content, list) else []
+                return keywords[:7] if keywords else [topic_name.lower()]
+            else:
+                # AI failed, use fallback
+                self.logger.warning(f"AI keyword generation failed: {result.error_message}")
+                raise AIError(result.error_message or "AI generation failed")
             
         except Exception as e:
             self.logger.error(f"AI keyword generation failed: {e}")
-            # Simple fallback
+            # Simple fallback - same as AIManager fallback but simpler
             return [topic_name.lower(), f"{topic_name.lower()} technology"]
 
     def _parse_add_topic_args(self, args: List[str]) -> Optional[tuple[str, Optional[List[str]]]]:

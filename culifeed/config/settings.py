@@ -121,12 +121,12 @@ class AISettings(BaseModel):
     
     # Multi-model configuration for fallback
     gemini_models: List[str] = Field(default=["gemini-1.5-flash"], description="Gemini models in priority order")
-    groq_models: List[str] = Field(default=["llama-3.1-70b-versatile", "llama-3.1-8b-instant"], description="Groq models in priority order")
+    groq_models: List[str] = Field(default=["llama-3.3-70b-versatile", "llama-3.1-8b-instant"], description="Groq models in priority order")
     openai_models: List[str] = Field(default=["gpt-4o-mini"], description="OpenAI models in priority order")
     
     # Legacy single model fields (for backward compatibility)
     gemini_model: str = Field(default="gemini-1.5-flash", description="Primary Gemini model")
-    groq_model: str = Field(default="llama-3.1-70b-versatile", description="Primary Groq model")
+    groq_model: str = Field(default="llama-3.3-70b-versatile", description="Primary Groq model")
     openai_model: str = Field(default="gpt-4o-mini", description="Primary OpenAI model")
     
     temperature: float = Field(default=0.1, ge=0.0, le=2.0, description="AI temperature setting")

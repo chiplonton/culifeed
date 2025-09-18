@@ -301,6 +301,59 @@ class AIManager:
         # All provider-model combinations failed - create simple fallback summary
         self.logger.warning("All provider-model combinations failed for summarization, creating fallback summary")
         return self._create_fallback_summary(article, max_sentences)
+
+    async def generate_keywords(self, topic_name: str, context: str = "", max_keywords: int = 7) -> AIResult:
+        """Generate keywords for a topic with two-level fallback (model + provider).
+        
+        Args:
+            topic_name: Topic name to generate keywords for
+            context: Additional context (e.g., existing user topics)
+            max_keywords: Maximum number of keywords to generate
+            
+        Returns:
+            AIResult with generated keywords
+        """
+        # Get provider-model combinations in priority order
+        combinations = self._get_provider_model_combinations()
+        
+        for provider_type, model_name in combinations:
+            provider = self.providers.get(provider_type)
+            health = self.provider_health.get(provider_type)
+            
+            if not provider or not health or not health.is_healthy:
+                continue
+            
+            try:
+                self.logger.debug(f"Generating keywords with {provider_type}/{model_name}")
+                
+                # Use model-specific method if provider supports it
+                if hasattr(provider, 'generate_keywords_with_model'):
+                    result = await provider.generate_keywords_with_model(topic_name, context, model_name, max_keywords)
+                elif hasattr(provider, 'generate_keywords'):
+                    # Fallback to basic generate_keywords (single model providers)
+                    result = await provider.generate_keywords(topic_name, context, max_keywords)
+                else:
+                    # Provider doesn't support keyword generation, skip
+                    continue
+                
+                if result.success:
+                    health.record_success()
+                    self.logger.debug(f"Keyword generation successful: {provider_type}/{model_name}")
+                    return result
+                else:
+                    health.record_error()
+                    
+            except AIError as e:
+                health.record_error(e.rate_limited)
+                self.logger.warning(f"Keyword generation failed with {provider_type}/{model_name}: {e.user_message}")
+            
+            except Exception as e:
+                health.record_error()
+                self.logger.error(f"Unexpected keyword generation error with {provider_type}/{model_name}: {e}")
+        
+        # All provider-model combinations failed - create simple fallback keywords
+        self.logger.warning("All provider-model combinations failed for keyword generation, creating fallback keywords")
+        return self._create_fallback_keywords(topic_name, max_keywords)
     
     def _get_provider_priority_order(self) -> List[AIProviderType]:
         """Get provider priority order based on health and configuration.
@@ -431,6 +484,55 @@ class AIManager:
             summary=summary,
             provider="fallback_summary"
         )
+
+    def _create_fallback_keywords(self, topic_name: str, max_keywords: int = 7) -> AIResult:
+        """Create fallback keywords when AI generation fails.
+        
+        Args:
+            topic_name: Topic name to generate keywords for
+            max_keywords: Maximum number of keywords to generate
+            
+        Returns:
+            AIResult with fallback keywords
+        """
+        try:
+            # Simple fallback strategy
+            keywords = [topic_name.lower()]
+            
+            # Add some basic variations
+            if " " in topic_name:
+                # Multi-word topic - add individual words and technology variant
+                words = topic_name.lower().split()
+                keywords.extend(words[:max_keywords-2])  # Add individual words
+                keywords.append(f"{topic_name.lower()} technology")
+            else:
+                # Single word topic - add technology and related variants
+                keywords.extend([
+                    f"{topic_name.lower()} technology",
+                    f"{topic_name.lower()} development",
+                    f"{topic_name.lower()} tools"
+                ])
+            
+            # Trim to max_keywords
+            keywords = keywords[:max_keywords]
+            
+            return AIResult(
+                success=True,
+                relevance_score=0.5,  # Neutral score for fallback
+                confidence=0.3,  # Low confidence for fallback
+                content=keywords,
+                processing_time_ms=1,
+                provider="fallback"
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Error creating fallback keywords: {e}")
+            return AIResult(
+                success=False,
+                relevance_score=0.0,
+                confidence=0.0,
+                error_message="Failed to create fallback keywords"
+            )
     
     async def test_all_providers(self) -> Dict[AIProviderType, bool]:
         """Test connection for all configured providers.

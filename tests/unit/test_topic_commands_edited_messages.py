@@ -87,7 +87,9 @@ class TestTopicCommandsEditedMessages:
         update = Mock()
         update.effective_chat.id = chat_id
         update.message = None  # No message for edited messages
-        update.effective_message = AsyncMock()  # But effective_message exists
+        update.effective_message = Mock()  # But effective_message exists
+        update.effective_message.reply_text = AsyncMock()  # Add reply_text method
+        update.callback_query = None  # No callback query
         return update
 
     @pytest.mark.asyncio

@@ -12,6 +12,7 @@ Tests focus on logic, configuration, and error handling without requiring real A
 
 import sys
 import os
+import pytest
 from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime, timezone
@@ -176,6 +177,7 @@ def test_gemini_provider_basic_structure():
         return False
 
 
+@pytest.mark.asyncio
 async def test_ai_manager_fallback_logic():
     """Test AIManager two-level fallback logic."""
     print("🔄 Testing AIManager fallback logic...")
