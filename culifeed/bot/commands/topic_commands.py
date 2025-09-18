@@ -317,10 +317,10 @@ class TopicCommandHandler:
             from ...config.settings import get_settings
             
             settings = get_settings()
-            if not settings.ai.gemini.api_key:
+            if not settings.ai.gemini_api_key:
                 raise AIError("No Gemini API key configured")
             
-            gemini_provider = GeminiProvider(settings.ai.gemini.api_key)
+            gemini_provider = GeminiProvider(settings.ai.gemini_api_key)
             response = await gemini_provider._make_gemini_request(prompt)
             
             if not response or not response.text:
