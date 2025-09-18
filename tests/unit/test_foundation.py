@@ -231,7 +231,8 @@ class TestConfiguration:
         """Test settings validation with environment variables."""
         with patch.dict(os.environ, {
             'CULIFEED_TELEGRAM__BOT_TOKEN': '123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11_test',
-            'CULIFEED_AI__GEMINI_API_KEY': 'test-gemini-key'
+            'CULIFEED_AI__GEMINI_API_KEY': 'test-gemini-key',
+            'CULIFEED_PROCESSING__AI_PROVIDER': 'gemini'  # Override YAML setting
         }):
             settings = CuliFeedSettings()
             

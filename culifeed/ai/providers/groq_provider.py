@@ -219,6 +219,58 @@ class GroqProvider(AIProvider):
             # Handle similar errors as in analyze_relevance
             self.logger.error(f"Summary generation error: {e}", exc_info=True)
             return self._create_error_result(f"Summary generation failed: {e}")
+
+    async def generate_keywords(self, topic_name: str, context: str = "", max_keywords: int = 7) -> AIResult:
+        """Generate keywords for a topic using Groq.
+        
+        Args:
+            topic_name: Topic name to generate keywords for
+            context: Additional context (e.g., existing user topics)
+            max_keywords: Maximum number of keywords to generate
+            
+        Returns:
+            AIResult with generated keywords
+        """
+        if not self.can_make_request():
+            return self._create_error_result("Rate limit exceeded")
+        
+        start_time = time.time()
+        
+        try:
+            # Build prompt for keyword generation
+            prompt = f"Generate {max_keywords} relevant keywords for '{topic_name}'.{context} Return comma-separated keywords only."
+            
+            # Make API request
+            self.logger.debug(f"Generating keywords for topic: {topic_name}")
+            
+            response = await self._make_chat_completion(prompt, max_tokens=150)
+            response_text = response.choices[0].message.content.strip()
+            
+            # Parse keywords
+            keywords = [k.strip().strip('"\'') for k in response_text.split(",") if k.strip()]
+            keywords = keywords[:max_keywords]  # Ensure max limit
+            
+            # Calculate processing time
+            processing_time_ms = int((time.time() - start_time) * 1000)
+            
+            # Update usage tracking
+            tokens_used = getattr(response.usage, 'total_tokens', None) if hasattr(response, 'usage') else None
+            self.update_rate_limit_usage(tokens_used or 0)
+            
+            self.logger.debug(f"Keywords generated: {len(keywords)} keywords, time={processing_time_ms}ms")
+            
+            return self._create_success_result(
+                relevance_score=1.0,  # Keywords always succeed if we get here
+                confidence=0.8,       # High confidence for keyword generation
+                content=keywords,     # Store keywords in content field
+                tokens_used=tokens_used,
+                processing_time_ms=processing_time_ms
+            )
+            
+        except Exception as e:
+            # Handle similar errors as in other methods
+            self.logger.error(f"Keyword generation error: {e}", exc_info=True)
+            return self._create_error_result(f"Keyword generation failed: {e}")
     
     async def test_connection(self) -> bool:
         """Test Groq API connection and authentication.
@@ -410,10 +462,10 @@ class GroqProvider(AIProvider):
             List of model names
         """
         return [
-            "llama-3.1-8b-instant",  # Fast and efficient (current)
-            "llama-3.1-70b-versatile",  # Replacement for deprecated llama3-70b-8192
-            "mixtral-8x7b-32768",  # Good balance of speed and capability
-            "gemma2-9b-it"          # Updated Gemma model
+            "llama-3.1-8b-instant",      # Fast and efficient
+            "llama-3.3-70b-versatile",   # Current flagship model (replaces deprecated llama-3.1-70b-versatile)
+            "mixtral-8x7b-32768",        # Good balance of speed and capability  
+            "gemma2-9b-it"               # Updated Gemma model
         ]
     
     def __str__(self) -> str:

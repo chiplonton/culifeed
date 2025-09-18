@@ -239,6 +239,70 @@ class GeminiProvider(AIProvider):
         except Exception as e:
             self.logger.error(f"Gemini summary generation error: {e}", exc_info=True)
             return self._create_error_result(f"Summary generation failed: {e}")
+
+    async def generate_keywords(self, topic_name: str, context: str = "", max_keywords: int = 7) -> AIResult:
+        """Generate keywords for a topic using Gemini.
+        
+        Args:
+            topic_name: Topic name to generate keywords for
+            context: Additional context (e.g., existing user topics)
+            max_keywords: Maximum number of keywords to generate
+            
+        Returns:
+            AIResult with generated keywords
+        """
+        if not self.can_make_request():
+            return self._create_error_result("Rate limit exceeded")
+        
+        start_time = time.time()
+        
+        try:
+            # Build prompt for keyword generation
+            prompt = f"Generate {max_keywords} relevant keywords for '{topic_name}'.{context} Return comma-separated keywords only."
+            
+            # Make API request
+            self.logger.debug(f"Generating keywords for topic: {topic_name}")
+            
+            response = await self._make_gemini_request(prompt)
+            
+            # Handle safety blocks and empty responses
+            try:
+                response_text = response.text.strip()
+            except ValueError as e:
+                if "finish_reason" in str(e):
+                    self.logger.warning(f"Gemini keyword generation blocked or empty: {e}")
+                    return self._create_error_result("Keywords blocked by safety filters")
+                else:
+                    raise
+            
+            # Parse keywords
+            keywords = [k.strip().strip('"\'') for k in response_text.split(",") if k.strip()]
+            keywords = keywords[:max_keywords]  # Ensure max limit
+            
+            # Calculate processing time
+            processing_time_ms = int((time.time() - start_time) * 1000)
+            
+            # Update usage tracking
+            tokens_used = getattr(response, 'usage_metadata', None)
+            if tokens_used:
+                total_tokens = getattr(tokens_used, 'total_token_count', 0)
+                self.update_rate_limit_usage(total_tokens)
+            else:
+                self.update_rate_limit_usage(0)
+            
+            self.logger.debug(f"Keywords generated: {len(keywords)} keywords, time={processing_time_ms}ms")
+            
+            return self._create_success_result(
+                relevance_score=1.0,  # Keywords always succeed if we get here
+                confidence=0.8,       # High confidence for keyword generation
+                content=keywords,     # Store keywords in content field
+                tokens_used=total_tokens if tokens_used else None,
+                processing_time_ms=processing_time_ms
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Gemini keyword generation error: {e}", exc_info=True)
+            return self._create_error_result(f"Keyword generation failed: {e}")
     
     async def test_connection(self) -> bool:
         """Test Gemini API connection and authentication.

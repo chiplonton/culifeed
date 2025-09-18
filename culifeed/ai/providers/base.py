@@ -51,6 +51,7 @@ class AIResult:
     relevance_score: float  # 0.0 to 1.0
     confidence: float      # 0.0 to 1.0  
     summary: Optional[str] = None
+    content: Optional[Any] = None  # General content field for any result type
     reasoning: Optional[str] = None
     matched_keywords: Optional[List[str]] = None
     provider: Optional[str] = None
@@ -134,6 +135,20 @@ class AIProvider(ABC):
             AIError: If summarization fails
         """
         pass
+
+    @abstractmethod 
+    async def generate_keywords(self, topic_name: str, context: str = "", max_keywords: int = 7) -> AIResult:
+        """Generate keywords for a topic.
+        
+        Args:
+            topic_name: Topic name to generate keywords for
+            context: Additional context (e.g., existing user topics)
+            max_keywords: Maximum number of keywords to generate
+            
+        Returns:
+            AIResult with generated keywords in content field
+        """
+        pass
     
     @abstractmethod
     async def test_connection(self) -> bool:
@@ -176,7 +191,8 @@ class AIProvider(ABC):
                              summary: str = None, reasoning: str = None,
                              matched_keywords: List[str] = None,
                              tokens_used: int = None, 
-                             processing_time_ms: int = None) -> AIResult:
+                             processing_time_ms: int = None,
+                             content: Any = None) -> AIResult:
         """Create successful AI result.
         
         Args:
@@ -187,6 +203,7 @@ class AIProvider(ABC):
             matched_keywords: Optional matched keywords
             tokens_used: Optional token usage count
             processing_time_ms: Optional processing time
+            content: Optional content for general use (e.g., keywords list)
             
         Returns:
             AIResult indicating success
@@ -196,6 +213,7 @@ class AIProvider(ABC):
             relevance_score=max(0.0, min(1.0, relevance_score)),  # Clamp to 0-1
             confidence=max(0.0, min(1.0, confidence)),            # Clamp to 0-1
             summary=summary,
+            content=content,
             reasoning=reasoning,
             matched_keywords=matched_keywords or [],
             provider=self.provider_type.value if hasattr(self.provider_type, 'value') else str(self.provider_type),

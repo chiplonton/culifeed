@@ -68,8 +68,8 @@ class TestTopicCommandsBasic:
 
         await handler.handle_remove_topic(mock_update, mock_context)
 
-        mock_update.effective_message.reply_text.assert_called_once()
-        call_args = mock_update.effective_message.reply_text.call_args[0][0]
+        mock_update.message.reply_text.assert_called_once()
+        call_args = mock_update.message.reply_text.call_args[0][0]
         assert "Missing topic name" in call_args
 
     @pytest.mark.asyncio

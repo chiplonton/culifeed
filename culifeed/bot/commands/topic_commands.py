@@ -23,7 +23,8 @@ from ...database.models import Topic
 from ...storage.topic_repository import TopicRepository
 from ...utils.logging import get_logger_for_component
 from ...utils.validators import ContentValidator, ValidationError
-from ...utils.exceptions import TelegramError, ErrorCode
+from ...ai.ai_manager import AIManager
+from ...utils.exceptions import TelegramError, ErrorCode, AIError
 
 
 class TopicCommandHandler:
@@ -37,6 +38,7 @@ class TopicCommandHandler:
         """
         self.db = db_connection
         self.topic_repo = TopicRepository(db_connection)
+        self.ai_manager = AIManager()
         self.logger = get_logger_for_component('topic_commands')
 
     async def handle_list_topics(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -115,15 +117,26 @@ class TopicCommandHandler:
                 )
                 return
 
-            # Validate keywords
-            try:
-                validated_keywords = ContentValidator.validate_keywords(keywords)
-            except ValidationError as e:
-                await update.message.reply_text(
-                    f"❌ *Invalid keywords:* {e.message}",
-                    parse_mode='Markdown'
-                )
-                return
+            # Handle keywords - either provided or AI-generated
+            if keywords is None:
+                # AI keyword generation
+                progress_msg = await update.message.reply_text(f"🤖 Generating keywords for '{validated_name}'...")
+                try:
+                    validated_keywords = await self._generate_keywords_with_ai(validated_name, chat_id)
+                    await progress_msg.edit_text(f"✅ Generated keywords: {', '.join(validated_keywords)}")
+                except Exception as e:
+                    await progress_msg.edit_text(f"⚠️ Using fallback keywords")
+                    validated_keywords = [validated_name.lower()]
+            else:
+                # Manual keywords provided
+                try:
+                    validated_keywords = ContentValidator.validate_keywords(keywords)
+                except ValidationError as e:
+                    await update.message.reply_text(
+                        f"❌ *Invalid keywords:* {e.message}",
+                        parse_mode='Markdown'
+                    )
+                    return
 
             # Check if topic already exists
             existing_topic = self.topic_repo.get_topic_by_name(chat_id, validated_name)
@@ -181,8 +194,21 @@ class TopicCommandHandler:
             chat_id = str(update.effective_chat.id)
             args = context.args
 
+            # Get the appropriate message object for reply
+            message = None
+            if update.message:
+                message = update.message
+            elif update.effective_message:
+                message = update.effective_message
+            elif update.callback_query and update.callback_query.message:
+                message = update.callback_query.message
+
+            if not message:
+                self.logger.warning("No message object available for remove topic response")
+                return
+
             if not args:
-                await update.message.reply_text(
+                await message.reply_text(
                     "❌ *Missing topic name*\n\n"
                     "Usage: `/removetopic <topic_name>`\n"
                     "Example: `/removetopic AI`\n\n"
@@ -196,7 +222,7 @@ class TopicCommandHandler:
             # Find the topic
             topic = self.topic_repo.get_topic_by_name(chat_id, topic_name)
             if not topic:
-                await update.message.reply_text(
+                await message.reply_text(
                     f"❌ Topic *'{topic_name}'* not found.\n\n"
                     f"Use `/topics` to see all your topics.",
                     parse_mode='Markdown'
@@ -207,13 +233,13 @@ class TopicCommandHandler:
             success = self.topic_repo.delete_topic(topic.id)
 
             if success:
-                await update.message.reply_text(
+                await message.reply_text(
                     f"✅ Topic *'{topic_name}'* removed successfully!",
                     parse_mode='Markdown'
                 )
                 self.logger.info(f"Removed topic '{topic_name}' from channel {chat_id}")
             else:
-                await update.message.reply_text(
+                await message.reply_text(
                     "❌ Failed to remove topic. Please try again.",
                     parse_mode='Markdown'
                 )
@@ -291,22 +317,45 @@ class TopicCommandHandler:
         except Exception as e:
             await self._handle_error(update, "edit topic", e)
 
-    def _parse_add_topic_args(self, args: List[str]) -> Optional[tuple[str, List[str]]]:
+    async def _generate_keywords_with_ai(self, topic_name: str, chat_id: str) -> List[str]:
+        """Generate keywords for a topic using AI."""
+        try:
+            existing_topics = self.topic_repo.get_topics_for_channel(chat_id, active_only=True)
+            context = f" User interests: {', '.join([t.name for t in existing_topics[:5]])}." if existing_topics else ""
+            
+            # Use AIManager with proper fallback strategy - same as other AI operations
+            result = await self.ai_manager.generate_keywords(topic_name, context, max_keywords=7)
+            
+            if result.success and result.content:
+                keywords = result.content if isinstance(result.content, list) else []
+                return keywords[:7] if keywords else [topic_name.lower()]
+            else:
+                # AI failed, use fallback
+                self.logger.warning(f"AI keyword generation failed: {result.error_message}")
+                raise AIError(result.error_message or "AI generation failed")
+            
+        except Exception as e:
+            self.logger.error(f"AI keyword generation failed: {e}")
+            # Simple fallback - same as AIManager fallback but simpler
+            return [topic_name.lower(), f"{topic_name.lower()} technology"]
+
+    def _parse_add_topic_args(self, args: List[str]) -> Optional[tuple[str, Optional[List[str]]]]:
         """Parse arguments for /addtopic command.
 
         Args:
             args: Command arguments
 
         Returns:
-            Tuple of (topic_name, keywords) or None if invalid
+            Tuple of (topic_name, keywords) or None if invalid.
+            keywords can be None to indicate AI generation should be used.
         """
-        if len(args) < 2:
+        if len(args) < 1:
             return None
 
-        # Join all args and split by comma to handle various formats
+        # Join all args to analyze the full input
         full_text = " ".join(args)
 
-        # Try to split by comma first
+        # Check if input contains commas (explicit manual keyword format)
         if "," in full_text:
             # Format: /addtopic AI machine learning, artificial intelligence, ML
             parts = [part.strip() for part in full_text.split(",")]
@@ -315,28 +364,26 @@ class TopicCommandHandler:
                 keywords = parts[1:]
                 return topic_name, keywords
 
-        # Try space-separated format
-        if len(args) >= 2:
-            # Format: /addtopic AI "machine learning" "artificial intelligence"
-            topic_name = args[0]
-            keywords = args[1:]
-            return topic_name, keywords
-
-        return None
+        # No commas found - treat entire input as topic name for AI generation
+        # This handles both single words and multi-word topic names
+        topic_name = full_text.strip()
+        return topic_name, None  # None indicates AI generation
 
     async def _send_add_topic_help(self, update: Update) -> None:
         """Send help message for /addtopic command."""
         help_message = (
             "❓ *How to add a topic:*\n\n"
-            "*Format:* `/addtopic <name> <keyword1, keyword2, keyword3>`\n\n"
+            "*🤖 AI Generation:* `/addtopic <topic_name>`\n"
+            "*📝 Manual Keywords:* `/addtopic <topic_name>, <keyword1>, <keyword2>, <keyword3>`\n\n"
             "*Examples:*\n"
-            "• `/addtopic AI machine learning, artificial intelligence, ML`\n"
-            "• `/addtopic Cloud AWS, Azure, GCP, cloud computing`\n"
-            "• `/addtopic Python python programming, django, flask`\n\n"
+            "• `/addtopic Machine Learning` - AI will generate keywords\n"
+            "• `/addtopic AWS ECS Performance` - AI will generate keywords\n"
+            "• `/addtopic Cloud, AWS, Azure, GCP, kubernetes` - Manual keywords\n"
+            "• `/addtopic Python, python programming, django, flask` - Manual keywords\n\n"
             "*Tips:*\n"
-            "• Use specific keywords for better matching\n"
-            "• Separate keywords with commas\n"
-            "• Topic names should be short and descriptive"
+            "• No commas = AI generates keywords automatically\n"
+            "• With commas = Manual keyword specification\n"
+            "• AI considers your existing topics for context"
         )
         await update.message.reply_text(help_message, parse_mode='Markdown')
 
