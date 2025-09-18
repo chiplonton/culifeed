@@ -312,11 +312,21 @@ class TopicCommandHandler:
             
             prompt = f"Generate 5-7 relevant keywords for '{topic_name}'.{context} Return comma-separated keywords only."
             
-            result = await self.ai_manager.generate_content(prompt=prompt, max_length=150, temperature=0.3)
-            if not result or not result.content:
+            # Access the Gemini provider directly since AIManager doesn't have generate_content
+            from ...ai.providers.gemini_provider import GeminiProvider
+            from ...config.settings import get_settings
+            
+            settings = get_settings()
+            if not settings.ai.gemini.api_key:
+                raise AIError("No Gemini API key configured")
+            
+            gemini_provider = GeminiProvider(settings.ai.gemini.api_key)
+            response = await gemini_provider._make_gemini_request(prompt)
+            
+            if not response or not response.text:
                 raise AIError("No AI response")
                 
-            keywords = [k.strip().strip('"\'') for k in result.content.split(",") if k.strip()]
+            keywords = [k.strip().strip('"\'') for k in response.text.split(",") if k.strip()]
             return keywords[:7] if keywords else [topic_name.lower()]
             
         except Exception as e:
