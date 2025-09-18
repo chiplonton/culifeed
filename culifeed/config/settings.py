@@ -39,7 +39,7 @@ class ProcessingSettings(BaseModel):
     """Processing pipeline configuration."""
     daily_run_hour: int = Field(default=8, ge=0, le=23, description="Hour of day to run processing (0-23)")
     max_articles_per_topic: int = Field(default=5, ge=1, le=20, description="Maximum articles to deliver per topic")
-    ai_provider: AIProvider = Field(default=AIProvider.GEMINI, description="Primary AI provider")
+    ai_provider: AIProvider = Field(default=AIProvider.GROQ, description="Primary AI provider")
     batch_size: int = Field(default=10, ge=1, le=50, description="Articles to process in one batch")
     parallel_feeds: int = Field(default=5, ge=1, le=20, description="Concurrent feed fetches")
     cache_embeddings: bool = Field(default=True, description="Cache article embeddings")
@@ -118,9 +118,17 @@ class AISettings(BaseModel):
     gemini_api_key: Optional[str] = Field(default=None, description="Google Gemini API key")
     groq_api_key: Optional[str] = Field(default=None, description="Groq API key")
     openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
-    gemini_model: str = Field(default="gemini-2.5-flash-lite", description="Gemini model to use")
-    groq_model: str = Field(default="llama-3.1-8b-instant", description="Groq model to use")
-    openai_model: str = Field(default="gpt-4o-mini", description="OpenAI model to use")
+    
+    # Multi-model configuration for fallback
+    gemini_models: List[str] = Field(default=["gemini-1.5-flash"], description="Gemini models in priority order")
+    groq_models: List[str] = Field(default=["llama-3.1-70b-versatile", "llama-3.1-8b-instant"], description="Groq models in priority order")
+    openai_models: List[str] = Field(default=["gpt-4o-mini"], description="OpenAI models in priority order")
+    
+    # Legacy single model fields (for backward compatibility)
+    gemini_model: str = Field(default="gemini-1.5-flash", description="Primary Gemini model")
+    groq_model: str = Field(default="llama-3.1-70b-versatile", description="Primary Groq model")
+    openai_model: str = Field(default="gpt-4o-mini", description="Primary OpenAI model")
+    
     temperature: float = Field(default=0.1, ge=0.0, le=2.0, description="AI temperature setting")
     max_tokens: int = Field(default=500, ge=50, le=2000, description="Maximum tokens per response")
     
@@ -133,6 +141,16 @@ class AISettings(BaseModel):
         elif provider == AIProvider.OPENAI:
             return self.openai_api_key
         return None
+    
+    def get_models_for_provider(self, provider: AIProvider) -> List[str]:
+        """Get model list for specified provider in priority order."""
+        if provider == AIProvider.GEMINI:
+            return self.gemini_models
+        elif provider == AIProvider.GROQ:
+            return self.groq_models
+        elif provider == AIProvider.OPENAI:
+            return self.openai_models
+        return []
     
     def validate_provider_key(self, provider: AIProvider) -> bool:
         """Check if API key is available for provider."""

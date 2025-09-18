@@ -14,6 +14,7 @@ from enum import Enum
 
 from .providers.base import AIProvider, AIResult, AIError, AIProviderType, RateLimitInfo
 from .providers.groq_provider import GroqProvider
+from .providers.gemini_provider import GeminiProvider
 from ..database.models import Article, Topic
 from ..config.settings import get_settings, AIProvider as ConfigAIProvider
 from ..utils.logging import get_logger_for_component
@@ -68,13 +69,14 @@ class FallbackStrategy(str, Enum):
 class AIManager:
     """Multi-provider AI manager with intelligent fallback."""
     
-    def __init__(self, primary_provider: Optional[ConfigAIProvider] = None):
+    def __init__(self, settings: Optional['CuliFeedSettings'] = None, primary_provider: Optional[ConfigAIProvider] = None):
         """Initialize AI manager.
         
         Args:
+            settings: CuliFeed settings (default: load from config)
             primary_provider: Primary provider to use (default from settings)
         """
-        self.settings = get_settings()
+        self.settings = settings or get_settings()
         self.logger = get_logger_for_component("ai_manager")
         
         # Provider management
@@ -96,6 +98,22 @@ class AIManager:
     
     def _initialize_providers(self) -> None:
         """Initialize all available AI providers."""
+        # Initialize Gemini if API key available
+        if self.settings.ai.gemini_api_key:
+            try:
+                gemini_provider = GeminiProvider(
+                    api_key=self.settings.ai.gemini_api_key,
+                    model_name=self.settings.ai.gemini_model
+                )
+                self.providers[AIProviderType.GEMINI] = gemini_provider
+                self.provider_health[AIProviderType.GEMINI] = ProviderHealth(
+                    provider_type=AIProviderType.GEMINI,
+                    available=True
+                )
+                self.logger.info("Gemini provider initialized successfully")
+            except Exception as e:
+                self.logger.warning(f"Failed to initialize Gemini provider: {e}")
+        
         # Initialize Groq if API key available
         if self.settings.ai.groq_api_key:
             try:
@@ -112,13 +130,6 @@ class AIManager:
             except Exception as e:
                 self.logger.warning(f"Failed to initialize Groq provider: {e}")
         
-        # TODO: Initialize Gemini provider when implemented
-        # if self.settings.ai.gemini_api_key:
-        #     try:
-        #         gemini_provider = GeminiProvider(...)
-        #         self.providers[AIProviderType.GEMINI] = gemini_provider
-        #         ...
-        
         # TODO: Initialize OpenAI provider when implemented
         # if self.settings.ai.openai_api_key:
         #     try:
@@ -128,10 +139,40 @@ class AIManager:
         
         if not self.providers:
             self.logger.error("No AI providers available! Check API keys in configuration.")
+
+    
+    def _get_provider_model_combinations(self) -> List[Tuple[str, str]]:
+        """Get (provider_type, model_name) combinations in priority order.
+        
+        Returns:
+            List of (provider_type, model_name) tuples for two-level fallback
+        """
+        combinations = []
+        
+        # Get provider priority order
+        provider_order = self._get_provider_priority_order()
+        
+        for provider_type in provider_order:
+            # Get models for this provider from settings
+            if provider_type == AIProviderType.GROQ:
+                models = self.settings.ai.get_models_for_provider(ConfigAIProvider.GROQ)
+            elif provider_type == AIProviderType.GEMINI:
+                models = self.settings.ai.get_models_for_provider(ConfigAIProvider.GEMINI)
+            elif provider_type == AIProviderType.OPENAI:
+                models = self.settings.ai.get_models_for_provider(ConfigAIProvider.OPENAI)
+            else:
+                models = []
+            
+            # Add all models for this provider
+            for model_name in models:
+                combinations.append((provider_type, model_name))
+        
+        self.logger.debug(f"Provider-model combinations: {combinations}")
+        return combinations
     
     async def analyze_relevance(self, article: Article, topic: Topic, 
                               fallback_strategy: FallbackStrategy = None) -> AIResult:
-        """Analyze article relevance with automatic fallback.
+        """Analyze article relevance with two-level fallback (model + provider).
         
         Args:
             article: Article to analyze
@@ -143,12 +184,12 @@ class AIManager:
         """
         strategy = fallback_strategy or self.fallback_strategy
         
-        # Get provider priority order
-        provider_order = self._get_provider_priority_order()
+        # Get provider-model combinations in priority order
+        combinations = self._get_provider_model_combinations()
         
         last_error = None
         
-        for provider_type in provider_order:
+        for provider_type, model_name in combinations:
             provider = self.providers.get(provider_type)
             health = self.provider_health.get(provider_type)
             
@@ -156,14 +197,19 @@ class AIManager:
                 continue
             
             try:
-                self.logger.debug(f"Analyzing relevance with {provider_type.value}")
+                self.logger.debug(f"Analyzing relevance with {provider_type}/{model_name}")
                 
-                result = await provider.analyze_relevance(article, topic)
+                # Use model-specific method if provider supports it
+                if hasattr(provider, 'analyze_relevance_with_model'):
+                    result = await provider.analyze_relevance_with_model(article, topic, model_name)
+                else:
+                    # Fallback to basic analyze_relevance (single model providers)
+                    result = await provider.analyze_relevance(article, topic)
                 
                 if result.success:
                     health.record_success()
                     self.logger.debug(
-                        f"Relevance analysis successful: {provider_type.value} "
+                        f"Relevance analysis successful: {provider_type}/{model_name} "
                         f"score={result.relevance_score:.3f}"
                     )
                     return result
@@ -171,13 +217,13 @@ class AIManager:
                     health.record_error()
                     last_error = AIError(
                         result.error_message or "Unknown analysis error",
-                        provider=provider_type.value
+                        provider=f"{provider_type}/{model_name}"
                     )
                     
             except AIError as e:
                 health.record_error(e.rate_limited)
                 last_error = e
-                self.logger.warning(f"AI provider {provider_type.value} failed: {e.user_message}")
+                self.logger.warning(f"AI provider {provider_type}/{model_name} failed: {e.user_message}")
                 
                 if strategy == FallbackStrategy.FAIL_FAST:
                     raise e
@@ -186,18 +232,18 @@ class AIManager:
                 health.record_error()
                 last_error = AIError(
                     f"Unexpected error: {e}",
-                    provider=provider_type.value,
+                    provider=f"{provider_type}/{model_name}",
                     error_code=ErrorCode.AI_PROCESSING_ERROR
                 )
-                self.logger.error(f"Unexpected error with {provider_type.value}: {e}")
+                self.logger.error(f"Unexpected error with {provider_type}/{model_name}: {e}")
         
-        # All providers failed - try keyword fallback if enabled
+        # All provider-model combinations failed - try keyword fallback if enabled
         if strategy == FallbackStrategy.NEXT_AVAILABLE and self.enable_keyword_fallback:
-            self.logger.info("All AI providers failed, falling back to keyword matching")
+            self.logger.info("All AI provider-model combinations failed, falling back to keyword matching")
             return self._keyword_fallback_analysis(article, topic)
         
         # No fallback or fallback disabled
-        error_msg = f"All AI providers failed. Last error: {last_error.user_message if last_error else 'Unknown'}"
+        error_msg = f"All AI provider-model combinations failed. Last error: {last_error.user_message if last_error else 'Unknown'}"
         self.logger.error(error_msg)
         
         return AIResult(
@@ -208,7 +254,7 @@ class AIManager:
         )
     
     async def generate_summary(self, article: Article, max_sentences: int = 3) -> AIResult:
-        """Generate article summary with automatic fallback.
+        """Generate article summary with two-level fallback (model + provider).
         
         Args:
             article: Article to summarize
@@ -217,10 +263,10 @@ class AIManager:
         Returns:
             AIResult with generated summary
         """
-        # Get provider priority order
-        provider_order = self._get_provider_priority_order()
+        # Get provider-model combinations in priority order
+        combinations = self._get_provider_model_combinations()
         
-        for provider_type in provider_order:
+        for provider_type, model_name in combinations:
             provider = self.providers.get(provider_type)
             health = self.provider_health.get(provider_type)
             
@@ -228,27 +274,32 @@ class AIManager:
                 continue
             
             try:
-                self.logger.debug(f"Generating summary with {provider_type.value}")
+                self.logger.debug(f"Generating summary with {provider_type}/{model_name}")
                 
-                result = await provider.generate_summary(article, max_sentences)
+                # Use model-specific method if provider supports it
+                if hasattr(provider, 'generate_summary_with_model'):
+                    result = await provider.generate_summary_with_model(article, model_name, max_sentences)
+                else:
+                    # Fallback to basic generate_summary (single model providers)
+                    result = await provider.generate_summary(article, max_sentences)
                 
                 if result.success:
                     health.record_success()
-                    self.logger.debug(f"Summary generation successful: {provider_type.value}")
+                    self.logger.debug(f"Summary generation successful: {provider_type}/{model_name}")
                     return result
                 else:
                     health.record_error()
                     
             except AIError as e:
                 health.record_error(e.rate_limited)
-                self.logger.warning(f"Summary generation failed with {provider_type.value}: {e.user_message}")
+                self.logger.warning(f"Summary generation failed with {provider_type}/{model_name}: {e.user_message}")
             
             except Exception as e:
                 health.record_error()
-                self.logger.error(f"Unexpected summary error with {provider_type.value}: {e}")
+                self.logger.error(f"Unexpected summary error with {provider_type}/{model_name}: {e}")
         
-        # All providers failed - create simple fallback summary
-        self.logger.warning("All providers failed for summarization, creating fallback summary")
+        # All provider-model combinations failed - create simple fallback summary
+        self.logger.warning("All provider-model combinations failed for summarization, creating fallback summary")
         return self._create_fallback_summary(article, max_sentences)
     
     def _get_provider_priority_order(self) -> List[AIProviderType]:
@@ -287,12 +338,15 @@ class AIManager:
         Returns:
             Corresponding AIProviderType or None
         """
-        mapping = {
-            ConfigAIProvider.GROQ: AIProviderType.GROQ,
-            ConfigAIProvider.GEMINI: AIProviderType.GEMINI,
-            ConfigAIProvider.OPENAI: AIProviderType.OPENAI
-        }
-        return mapping.get(config_provider)
+        # Direct mapping from config AIProvider enum values to AIProviderType
+        if config_provider == ConfigAIProvider.GROQ:
+            return AIProviderType.GROQ
+        elif config_provider == ConfigAIProvider.GEMINI:
+            return AIProviderType.GEMINI
+        elif config_provider == ConfigAIProvider.OPENAI:
+            return AIProviderType.OPENAI
+        else:
+            return None
     
     def _keyword_fallback_analysis(self, article: Article, topic: Topic) -> AIResult:
         """Fallback relevance analysis using keyword matching.

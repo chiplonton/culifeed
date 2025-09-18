@@ -77,7 +77,11 @@ class AIError(CuliFeedError):
     
     def __init__(self, message: str, provider: str, error_code: ErrorCode = None,
                  rate_limited: bool = False, retryable: bool = False):
-        super().__init__(message, error_code or ErrorCode.AI_PROCESSING_ERROR)
+        super().__init__(
+            message, 
+            error_code or ErrorCode.AI_PROCESSING_ERROR,
+            recoverable=retryable  # Map retryable to recoverable for parent class
+        )
         self.provider = provider
         self.rate_limited = rate_limited
         self.retryable = retryable
@@ -194,7 +198,7 @@ class AIProvider(ABC):
             summary=summary,
             reasoning=reasoning,
             matched_keywords=matched_keywords or [],
-            provider=self.provider_type.value,
+            provider=self.provider_type.value if hasattr(self.provider_type, 'value') else str(self.provider_type),
             model_used=self.model_name,
             tokens_used=tokens_used,
             processing_time_ms=processing_time_ms
@@ -213,7 +217,7 @@ class AIProvider(ABC):
             success=False,
             relevance_score=0.0,
             confidence=0.0,
-            provider=self.provider_type.value,
+            provider=self.provider_type.value if hasattr(self.provider_type, 'value') else str(self.provider_type),
             model_used=self.model_name,
             error_message=error_message
         )
