@@ -1,84 +1,99 @@
 """
-Groq AI Provider Implementation
-==============================
+Google Gemini AI provider implementation for CuliFeed.
 
-Groq provider for fast LLM inference with comprehensive error handling,
-rate limiting, and fallback support for article relevance analysis.
+This module provides integration with Google's Gemini AI API for content relevance
+analysis and summary generation with comprehensive error handling and rate limiting.
 """
 
 import asyncio
+import json
 import time
-from typing import Optional, List
-import logging
+from typing import Dict, Any, List, Optional
 
+from culifeed.ai.providers.base import AIProvider, AIResult, RateLimitInfo
+from culifeed.config.settings import AIProvider as ConfigAIProvider
+from culifeed.database.models import Article, Topic
+from culifeed.utils.exceptions import AIError, ErrorCode
+from culifeed.utils.logging import get_logger_for_component
+
+# Try to import Gemini library
 try:
-    import groq
-    from groq import Groq, AsyncGroq
-    GROQ_AVAILABLE = True
+    import google.generativeai as genai
+    from google.generativeai.types import HarmCategory, HarmBlockThreshold
+    GEMINI_AVAILABLE = True
 except ImportError:
-    GROQ_AVAILABLE = False
-    groq = None
-    Groq = None
-    AsyncGroq = None
-
-from .base import AIProvider, AIResult, AIError, RateLimitInfo, AIProviderType
-from ...database.models import Article, Topic
-from ...utils.exceptions import ErrorCode
-from ...utils.logging import get_logger_for_component
+    GEMINI_AVAILABLE = False
 
 
-class GroqProvider(AIProvider):
-    """Groq AI provider with async support and comprehensive error handling."""
+class AIProviderType:
+    """AI provider types enum."""
+    GEMINI = "gemini"
+    GROQ = "groq"
+    OPENAI = "openai"
+
+
+class GeminiProvider(AIProvider):
+    """Google Gemini AI provider with async support and comprehensive error handling."""
     
-    # Groq rate limits for free tier
+    # Gemini rate limits for free tier
     DEFAULT_RATE_LIMITS = RateLimitInfo(
-        requests_per_minute=30,
-        requests_per_day=14400,  # Generous daily limit
-        tokens_per_minute=6000,
-        tokens_per_day=None  # No daily token limit for most models
+        requests_per_minute=15,
+        requests_per_day=1500,  # Conservative estimate for free tier
+        tokens_per_minute=32000,
+        tokens_per_day=None  # No daily token limit specified
     )
     
-    def __init__(self, api_key: str, model_name: str = "llama-3.1-8b-instant"):
-        """Initialize Groq provider.
+    def __init__(self, api_key: str, model_name: str = "gemini-2.5-flash"):
+        """Initialize Gemini provider.
         
         Args:
-            api_key: Groq API key
-            model_name: Model to use (default: llama-3.1-8b-instant)
+            api_key: Google Gemini API key
+            model_name: Model to use (default: gemini-1.5-flash)
             
         Raises:
-            AIError: If Groq library not available or invalid configuration
+            AIError: If Gemini library not available or invalid configuration
         """
-        if not GROQ_AVAILABLE:
+        if not GEMINI_AVAILABLE:
             raise AIError(
-                "Groq library not installed. Run: pip install groq",
-                provider="groq",
+                "Google Generative AI library not installed. Run: pip install google-generativeai",
+                provider="gemini",
                 error_code=ErrorCode.AI_PROVIDER_UNAVAILABLE
             )
         
         if not api_key:
             raise AIError(
-                "Groq API key is required",
-                provider="groq",
+                "Gemini API key is required",
+                provider="gemini",
                 error_code=ErrorCode.AI_INVALID_CREDENTIALS
             )
         
-        super().__init__(api_key, model_name, AIProviderType.GROQ)
+        super().__init__(api_key, model_name, AIProviderType.GEMINI)
         
-        # Initialize clients
-        self.client = Groq(api_key=api_key)
-        self.async_client = AsyncGroq(api_key=api_key)
+        # Configure Gemini
+        genai.configure(api_key=api_key)
+        
+        # Initialize model with safety settings
+        self.model = genai.GenerativeModel(
+            model_name=model_name,
+            safety_settings={
+                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+            }
+        )
         
         # Set up logging and rate limiting
-        self.logger = get_logger_for_component("groq_provider")
+        self.logger = get_logger_for_component("gemini_provider")
         self._rate_limit_info = self.DEFAULT_RATE_LIMITS
         self._last_request_time = 0.0
         self._request_count_minute = 0
         self._minute_start = time.time()
         
-        self.logger.info(f"Groq provider initialized with model: {model_name}")
+        self.logger.info(f"Gemini provider initialized with model: {model_name}")
     
     async def analyze_relevance(self, article: Article, topic: Topic) -> AIResult:
-        """Analyze article relevance using Groq.
+        """Analyze article relevance using Gemini.
         
         Args:
             article: Article to analyze
@@ -99,19 +114,33 @@ class GroqProvider(AIProvider):
             # Make API request
             self.logger.debug(f"Analyzing relevance for article: {article.title[:50]}...")
             
-            response = await self._make_chat_completion(prompt)
+            response = await self._make_gemini_request(prompt)
             
-            # Parse response
+            # Parse response - handle safety blocks and empty responses
+            try:
+                response_text = response.text
+            except ValueError as e:
+                # Handle cases where response is blocked by safety filters or empty
+                if "finish_reason" in str(e):
+                    self.logger.warning(f"Gemini response blocked or empty: {e}")
+                    return self._create_error_result("Content blocked by safety filters")
+                else:
+                    raise
+            
             relevance_score, confidence, matched_keywords, reasoning = self._parse_relevance_response(
-                response.choices[0].message.content
+                response_text
             )
             
             # Calculate processing time
             processing_time_ms = int((time.time() - start_time) * 1000)
             
             # Update usage tracking
-            tokens_used = getattr(response.usage, 'total_tokens', None) if hasattr(response, 'usage') else None
-            self.update_rate_limit_usage(tokens_used or 0)
+            tokens_used = getattr(response, 'usage_metadata', None)
+            if tokens_used:
+                total_tokens = getattr(tokens_used, 'total_token_count', 0)
+                self.update_rate_limit_usage(total_tokens)
+            else:
+                self.update_rate_limit_usage(0)
             
             self.logger.debug(
                 f"Relevance analysis complete: score={relevance_score:.3f}, "
@@ -123,54 +152,33 @@ class GroqProvider(AIProvider):
                 confidence=confidence,
                 reasoning=reasoning,
                 matched_keywords=matched_keywords,
-                tokens_used=tokens_used,
+                tokens_used=total_tokens if tokens_used else None,
                 processing_time_ms=processing_time_ms
             )
             
-        except groq.RateLimitError as e:
-            self.logger.warning(f"Groq rate limit exceeded: {e}")
-            self._handle_rate_limit_error(e)
-            return self._create_error_result("Rate limit exceeded")
+        except Exception as e:
+            self.logger.error(f"Gemini relevance analysis error: {e}", exc_info=True)
             
-        except groq.APIConnectionError as e:
-            self.logger.error(f"Groq connection error: {e}")
-            raise AIError(
-                f"Connection to Groq failed: {e}",
-                provider="groq",
-                error_code=ErrorCode.AI_CONNECTION_ERROR,
-                retryable=True
-            )
-            
-        except groq.APIStatusError as e:
-            self.logger.error(f"Groq API error: {e.status_code} - {e.message}")
-            
-            if e.status_code == 401:
-                raise AIError(
-                    "Invalid Groq API key",
-                    provider="groq",
-                    error_code=ErrorCode.AI_INVALID_CREDENTIALS
-                )
-            elif e.status_code == 429:
+            # Handle specific Gemini errors
+            if "quota" in str(e).lower() or "rate limit" in str(e).lower():
                 self._handle_rate_limit_error(e)
                 return self._create_error_result("Rate limit exceeded")
+            elif "api key" in str(e).lower() or "authentication" in str(e).lower():
+                raise AIError(
+                    "Invalid Gemini API key",
+                    provider="gemini",
+                    error_code=ErrorCode.AI_INVALID_CREDENTIALS
+                )
             else:
                 raise AIError(
-                    f"Groq API error: {e.status_code} - {e.message}",
-                    provider="groq",
+                    f"Gemini API error: {e}",
+                    provider="gemini",
                     error_code=ErrorCode.AI_API_ERROR,
-                    retryable=e.status_code >= 500
+                    retryable=True
                 )
-        
-        except Exception as e:
-            self.logger.error(f"Unexpected Groq error: {e}", exc_info=True)
-            raise AIError(
-                f"Unexpected error during relevance analysis: {e}",
-                provider="groq",
-                error_code=ErrorCode.AI_PROCESSING_ERROR
-            )
     
     async def generate_summary(self, article: Article, max_sentences: int = 3) -> AIResult:
-        """Generate article summary using Groq.
+        """Generate article summary using Gemini.
         
         Args:
             article: Article to summarize
@@ -191,8 +199,17 @@ class GroqProvider(AIProvider):
             # Make API request
             self.logger.debug(f"Generating summary for article: {article.title[:50]}...")
             
-            response = await self._make_chat_completion(prompt)
-            summary = response.choices[0].message.content.strip()
+            response = await self._make_gemini_request(prompt)
+            
+            # Handle safety blocks and empty responses
+            try:
+                summary = response.text.strip()
+            except ValueError as e:
+                if "finish_reason" in str(e):
+                    self.logger.warning(f"Gemini summary blocked or empty: {e}")
+                    return self._create_error_result("Summary blocked by safety filters")
+                else:
+                    raise
             
             # Clean up summary format
             if summary.startswith("SUMMARY:"):
@@ -202,8 +219,12 @@ class GroqProvider(AIProvider):
             processing_time_ms = int((time.time() - start_time) * 1000)
             
             # Update usage tracking
-            tokens_used = getattr(response.usage, 'total_tokens', None) if hasattr(response, 'usage') else None
-            self.update_rate_limit_usage(tokens_used or 0)
+            tokens_used = getattr(response, 'usage_metadata', None)
+            if tokens_used:
+                total_tokens = getattr(tokens_used, 'total_token_count', 0)
+                self.update_rate_limit_usage(total_tokens)
+            else:
+                self.update_rate_limit_usage(0)
             
             self.logger.debug(f"Summary generated: {len(summary)} chars, time={processing_time_ms}ms")
             
@@ -211,41 +232,39 @@ class GroqProvider(AIProvider):
                 relevance_score=1.0,  # Summary always succeeds if we get here
                 confidence=0.9,       # High confidence for summarization
                 summary=summary,
-                tokens_used=tokens_used,
+                tokens_used=total_tokens if tokens_used else None,
                 processing_time_ms=processing_time_ms
             )
             
         except Exception as e:
-            # Handle similar errors as in analyze_relevance
-            self.logger.error(f"Summary generation error: {e}", exc_info=True)
+            self.logger.error(f"Gemini summary generation error: {e}", exc_info=True)
             return self._create_error_result(f"Summary generation failed: {e}")
     
     async def test_connection(self) -> bool:
-        """Test Groq API connection and authentication.
+        """Test Gemini API connection and authentication.
         
         Returns:
             True if connection successful, False otherwise
         """
         try:
-            self.logger.info("Testing Groq connection...")
+            self.logger.info("Testing Gemini connection...")
             
             # Simple test request
-            response = await self._make_chat_completion(
-                "Respond with exactly: 'Connection test successful'",
-                max_tokens=10
+            response = await self._make_gemini_request(
+                "Respond with exactly: 'Connection test successful'"
             )
             
-            success = "successful" in response.choices[0].message.content.lower()
+            success = "successful" in response.text.lower()
             
             if success:
-                self.logger.info("Groq connection test successful")
+                self.logger.info("Gemini connection test successful")
             else:
-                self.logger.warning("Groq connection test failed - unexpected response")
+                self.logger.warning("Gemini connection test failed - unexpected response")
             
             return success
             
         except Exception as e:
-            self.logger.error(f"Groq connection test failed: {e}")
+            self.logger.error(f"Gemini connection test failed: {e}")
             return False
     
     def get_rate_limits(self) -> RateLimitInfo:
@@ -283,7 +302,7 @@ class GroqProvider(AIProvider):
             return False
         
         # Check minimum time between requests (basic throttling)
-        if current_time - self._last_request_time < 0.1:  # 100ms minimum
+        if current_time - self._last_request_time < 0.2:  # 200ms minimum for Gemini
             return False
         
         return True
@@ -309,9 +328,19 @@ class GroqProvider(AIProvider):
         """
         if model_name in self.get_available_models():
             self.model_name = model_name
-            self.logger.info(f"Switched Groq model to: {model_name}")
+            # Reinitialize model with new name
+            self.model = genai.GenerativeModel(
+                model_name=model_name,
+                safety_settings={
+                    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+                }
+            )
+            self.logger.info(f"Switched Gemini model to: {model_name}")
         else:
-            self.logger.warning(f"Unknown Groq model: {model_name}, keeping current: {self.model_name}")
+            self.logger.warning(f"Unknown Gemini model: {model_name}, keeping current: {self.model_name}")
     
     async def analyze_relevance_with_model(self, article: Article, topic: Topic, model_name: str) -> AIResult:
         """Analyze relevance with a specific model.
@@ -326,6 +355,7 @@ class GroqProvider(AIProvider):
         """
         # Temporarily switch model
         original_model = self.model_name
+        original_model_obj = self.model
         self.set_model(model_name)
         
         try:
@@ -334,6 +364,7 @@ class GroqProvider(AIProvider):
         finally:
             # Restore original model
             self.model_name = original_model
+            self.model = original_model_obj
     
     async def generate_summary_with_model(self, article: Article, model_name: str, max_sentences: int = 3) -> AIResult:
         """Generate summary with a specific model.
@@ -348,6 +379,7 @@ class GroqProvider(AIProvider):
         """
         # Temporarily switch model
         original_model = self.model_name
+        original_model_obj = self.model
         self.set_model(model_name)
         
         try:
@@ -356,35 +388,29 @@ class GroqProvider(AIProvider):
         finally:
             # Restore original model
             self.model_name = original_model
+            self.model = original_model_obj
     
-    async def _make_chat_completion(self, prompt: str, max_tokens: int = 500) -> any:
-        """Make chat completion request to Groq.
+    async def _make_gemini_request(self, prompt: str) -> Any:
+        """Make request to Gemini API.
         
         Args:
             prompt: Prompt text
-            max_tokens: Maximum tokens in response
             
         Returns:
-            Groq completion response
+            Gemini response object
         """
         # Add small delay for rate limiting
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.2)
         
-        response = await self.async_client.chat.completions.create(
-            model=self.model_name,
-            messages=[
-                {
-                    "role": "system", 
-                    "content": "You are a helpful AI assistant that analyzes content accurately and provides structured responses."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            max_tokens=max_tokens,
-            temperature=0.1,  # Low temperature for consistent results
-            top_p=0.9
+        # Generate content asynchronously
+        response = await self.model.generate_content_async(
+            prompt,
+            generation_config=genai.types.GenerationConfig(
+                temperature=0.1,
+                max_output_tokens=500,
+                top_p=0.9,
+                top_k=40
+            )
         )
         
         return response
@@ -393,7 +419,7 @@ class GroqProvider(AIProvider):
         """Handle rate limit error and update internal tracking.
         
         Args:
-            error: Rate limit error from Groq API
+            error: Rate limit error from Gemini API
         """
         self.logger.warning(f"Rate limit hit: {error}")
         
@@ -404,22 +430,22 @@ class GroqProvider(AIProvider):
     
     @staticmethod
     def get_available_models() -> List[str]:
-        """Get list of available Groq models.
+        """Get list of available Gemini models.
         
         Returns:
             List of model names
         """
         return [
-            "llama-3.1-8b-instant",  # Fast and efficient (current)
-            "llama-3.1-70b-versatile",  # Replacement for deprecated llama3-70b-8192
-            "mixtral-8x7b-32768",  # Good balance of speed and capability
-            "gemma2-9b-it"          # Updated Gemma model
+            "gemini-2.5-flash",          # Fast and efficient (recommended)
+            "gemini-2.5-flash-lite",     # Ultra fast, lighter model
+            "gemini-1.5-flash",          # Previous generation
+            "gemini-1.5-pro",            # More capable but slower
         ]
     
     def __str__(self) -> str:
         """String representation of provider."""
-        return f"GroqProvider(model={self.model_name})"
+        return f"GeminiProvider(model={self.model_name})"
     
     def __repr__(self) -> str:
         """Detailed string representation."""
-        return f"GroqProvider(model={self.model_name}, rate_limit={self._request_count_minute}/{self.DEFAULT_RATE_LIMITS.requests_per_minute})"
+        return f"GeminiProvider(model={self.model_name}, rate_limit={self._request_count_minute}/{self.DEFAULT_RATE_LIMITS.requests_per_minute})"

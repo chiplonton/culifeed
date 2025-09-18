@@ -9,7 +9,7 @@ user:
 # Processing Settings
 processing:
   daily_run_hour: 8                    # Hour of day to run processing (0-23)
-  ai_provider: "gemini"                # Primary AI provider: gemini, groq, openai
+  ai_provider: "groq"                  # Primary AI provider: gemini, groq, openai
   max_articles_per_topic: 5            # Maximum articles per topic per day
   batch_size: 10                       # Articles to process in one AI request
   parallel_feeds: 5                    # Concurrent RSS feed fetches
@@ -57,10 +57,15 @@ ai:
   groq_api_key: "${CULIFEED_AI__GROQ_API_KEY}"      # Groq API key (fallback)
   openai_api_key: "${CULIFEED_AI__OPENAI_API_KEY}"  # OpenAI API key (optional)
   
-  # Model Configuration
-  gemini_model: "gemini-2.5-flash-lite"  # Gemini model
-  groq_model: "llama-3.1-8b-instant"     # Groq model
-  openai_model: "gpt-4o-mini"            # OpenAI model
+  # Multi-Model Configuration for Fallback
+  gemini_models: ["gemini-2.5-flash", "gemini-2.5-flash-lite"]                        # Gemini models in priority order
+  groq_models: ["llama-3.1-70b-versatile", "llama-3.1-8b-instant"]  # Groq models: premium → economy
+  openai_models: ["gpt-4o-mini"]                             # OpenAI models (future)
+  
+  # Legacy Model Configuration (backward compatibility)
+  gemini_model: "gemini-1.5-flash"       # Primary Gemini model
+  groq_model: "llama-3.1-70b-versatile"  # Primary Groq model  
+  openai_model: "gpt-4o-mini"            # Primary OpenAI model
   
   temperature: 0.1                       # AI temperature (0.0-2.0)
   max_tokens: 500                        # Maximum tokens per response
