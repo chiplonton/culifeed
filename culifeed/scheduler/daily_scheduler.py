@@ -418,7 +418,7 @@ class DailyScheduler:
             return {
                 'current_time': datetime.now().isoformat(),
                 'processed_today': processed_today,
-                'last_successful_run': last_success.isoformat() if last_success else None,
+                'last_successful_run': last_success if last_success else None,
                 'recent_success_rate': round(success_rate, 1),
                 'total_recent_runs': total_runs,
                 'successful_recent_runs': successful_runs,
@@ -434,66 +434,5 @@ class DailyScheduler:
             }
 
 
-async def main():
-    """
-    CLI entry point for daily scheduler.
-    This function is typically called by systemd timers or cron jobs.
-    """
-    import argparse
-    
-    parser = argparse.ArgumentParser(description='CuliFeed Daily Scheduler')
-    parser.add_argument('--dry-run', action='store_true', 
-                       help='Simulate processing without sending messages')
-    parser.add_argument('--check-status', action='store_true',
-                       help='Check processing status and exit')
-    parser.add_argument('--config', help='Configuration file path')
-    parser.add_argument('--debug', action='store_true', help='Enable debug logging')
-    
-    args = parser.parse_args()
-    
-    try:
-        # Initialize scheduler
-        if args.config:
-            # Custom config loading would go here
-            pass
-            
-        scheduler = DailyScheduler()
-        
-        # Set up logging level
-        if args.debug:
-            logging.getLogger().setLevel(logging.DEBUG)
-        
-        if args.check_status:
-            # Status check mode
-            status = await scheduler.check_processing_status()
-            print(f"Processing Status: {status['health_status']}")
-            print(f"Last Success: {status.get('last_successful_run', 'Never')}")
-            print(f"Recent Success Rate: {status.get('recent_success_rate', 0)}%")
-            
-            # Exit with appropriate code for monitoring systems
-            sys.exit(0 if status['health_status'] == 'healthy' else 1)
-        else:
-            # Normal processing mode
-            result = await scheduler.run_daily_processing(dry_run=args.dry_run)
-            
-            if result['success']:
-                print(f"✅ Processing completed successfully")
-                print(f"📊 Processed {result['channels_processed']} channels, {result['total_articles_processed']} articles")
-                print(f"⏱️ Duration: {result['duration_seconds']:.1f} seconds")
-                sys.exit(0)
-            else:
-                print(f"❌ Processing failed: {result.get('message', 'Unknown error')}")
-                if result.get('errors_count', 0) > 0:
-                    print(f"🚨 Encountered {result['errors_count']} errors")
-                sys.exit(1)
-                
-    except KeyboardInterrupt:
-        print("\n⚠️ Processing interrupted by user")
-        sys.exit(130)
-    except Exception as e:
-        print(f"❌ Scheduler error: {e}")
-        sys.exit(1)
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
