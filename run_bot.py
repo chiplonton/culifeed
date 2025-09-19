@@ -18,16 +18,23 @@ sys.path.insert(0, str(project_root))
 from culifeed.bot.telegram_bot import TelegramBotService
 from culifeed.config.settings import get_settings
 from culifeed.utils.logging import setup_logger
-from culifeed.utils.process_lock import ensure_single_telegram_bot
+from culifeed.utils.telegram_conflict_detector import check_bot_availability_sync, handle_telegram_conflict
 
 
 def main():
     """Main entry point for the bot service."""
     # Load settings first to get bot token
     settings = get_settings()
-    
-    # Ensure only one bot instance is running with this token
-    lock = ensure_single_telegram_bot(settings.telegram.bot_token)
+
+    # Check if bot token is available (detect conflicts early)
+    print("🔍 Checking Telegram bot availability...")
+    is_available, error_msg = check_bot_availability_sync(settings.telegram.bot_token)
+
+    if not is_available:
+        handle_telegram_conflict(error_msg)
+        sys.exit(1)
+
+    print("✅ Telegram bot token is available")
 
     # Setup logging
     setup_logger(
@@ -62,9 +69,6 @@ def main():
         logger.error(f"Fatal error: {e}")
         print(f"❌ Failed to start bot: {e}")
         sys.exit(1)
-    finally:
-        # Always release the lock
-        lock.release()
 
 
 if __name__ == "__main__":
