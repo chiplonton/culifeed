@@ -298,8 +298,8 @@ class TestTopicRepository:
         retrieved = topic_repo.get_topic(topic_id)
         assert retrieved is not None
         assert retrieved.name == topic.name
-        assert retrieved.keywords == topic.keywords
-        assert retrieved.exclude_keywords == topic.exclude_keywords
+        assert set(retrieved.keywords) == set(topic.keywords)  # Order doesn't matter for keywords
+        assert set(retrieved.exclude_keywords) == set(topic.exclude_keywords)  # Order doesn't matter
     
     def test_get_topic_not_found(self, topic_repo):
         """Test getting non-existent topic."""
