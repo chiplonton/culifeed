@@ -56,7 +56,20 @@ def main():
         print("\n👋 Bot stopped by user")
     except Exception as e:
         logger.error(f"Fatal error: {e}")
-        print(f"❌ Failed to start bot: {e}")
+
+        # Check for common Telegram conflict error
+        if "terminated by other getUpdates request" in str(e):
+            print("\n❌ Telegram Bot Conflict!")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print("Another bot instance is already running with this token.")
+            print("To fix this:")
+            print("  🐳 Stop Docker containers: docker ps | grep culifeed")
+            print("     Then: docker stop <container_id>")
+            print("  🖥️  Kill running processes: ps aux | grep culifeed")
+            print("     Then: kill <process_id>")
+            print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        else:
+            print(f"❌ Failed to start bot: {e}")
         sys.exit(1)
 
 
