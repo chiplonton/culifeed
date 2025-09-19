@@ -208,54 +208,99 @@ class MessageSender:
             Dictionary mapping topic names to article lists
         """
         try:
-            # For Phase 4 implementation without AI processing,
-            # we'll get articles that passed pre-filtering
             with self.db.get_connection() as conn:
-                # Get topics for this channel
-                topic_rows = conn.execute("""
-                    SELECT * FROM topics
-                    WHERE chat_id = ? AND active = ?
-                    ORDER BY created_at
-                """, (chat_id, True)).fetchall()
+                # Get articles that were successfully processed and matched to topics
+                # This fixes the bug where all articles were delivered to all topics
+                article_rows = conn.execute("""
+                    SELECT a.*, pr.topic_name, pr.ai_relevance_score, pr.confidence_score
+                    FROM processing_results pr
+                    JOIN articles a ON pr.article_id = a.id
+                    WHERE pr.chat_id = ? 
+                    AND pr.delivered = 0
+                    AND datetime(pr.processed_at) >= datetime('now', '-1 days')
+                    ORDER BY pr.topic_name, pr.ai_relevance_score DESC, a.published_at DESC
+                """, (chat_id,)).fetchall()
 
-                if not topic_rows:
-                    return {}
+                if not article_rows:
+                    # Fallback: if no processing_results, get recent articles (old behavior)
+                    # This ensures the system still works during transition period
+                    self.logger.warning(f"No processing results found for {chat_id}, falling back to all recent articles")
+                    return await self._get_articles_fallback(chat_id, limit_per_topic)
 
+                # Group articles by topic
                 articles_by_topic = {}
+                topic_article_count = {}
+                
+                for row in article_rows:
+                    row_dict = dict(row)
+                    topic_name = row_dict['topic_name']
+                    
+                    # Limit articles per topic
+                    if topic_article_count.get(topic_name, 0) >= limit_per_topic:
+                        continue
+                    
+                    # Create article object
+                    article_data = {k: v for k, v in row_dict.items() if k != 'topic_name'}
+                    article = Article(**article_data)
+                    
+                    # Add to topic group
+                    if topic_name not in articles_by_topic:
+                        articles_by_topic[topic_name] = []
+                    
+                    articles_by_topic[topic_name].append(article)
+                    topic_article_count[topic_name] = topic_article_count.get(topic_name, 0) + 1
 
-                for topic_row in topic_rows:
-                    topic_data = dict(topic_row)
-                    topic_name = topic_data['name']
-
-                    # Get AI-processed articles from feeds for this channel
-                    # Prioritize articles with AI analysis, fallback to recent articles
-                    article_rows = conn.execute("""
-                        SELECT a.* FROM articles a
-                        JOIN feeds f ON a.source_feed = f.url
-                        WHERE f.chat_id = ? AND f.active = ?
-                        AND datetime(a.created_at) >= datetime('now', '-1 days')
-                        ORDER BY 
-                            CASE WHEN a.ai_relevance_score IS NOT NULL THEN 0 ELSE 1 END,
-                            a.ai_relevance_score DESC,
-                            a.created_at DESC
-                        LIMIT ?
-                    """, (chat_id, True, limit_per_topic)).fetchall()
-
-                    if article_rows:
-                        articles = []
-                        for row in article_rows:
-                            article_data = dict(row)
-                            article = Article(**article_data)
-                            articles.append(article)
-
-                        if articles:
-                            articles_by_topic[topic_name] = articles
-
+                self.logger.info(f"Retrieved {sum(len(articles) for articles in articles_by_topic.values())} articles across {len(articles_by_topic)} topics for delivery")
                 return articles_by_topic
 
         except Exception as e:
             self.logger.error(f"Error getting articles for delivery: {e}")
             return {}
+    
+    async def _get_articles_fallback(self, chat_id: str, limit_per_topic: int) -> Dict[str, List[Article]]:
+        """Fallback method for getting articles when processing_results is empty.
+        
+        This maintains backward compatibility during the transition period.
+        """
+        with self.db.get_connection() as conn:
+            # Get topics for this channel
+            topic_rows = conn.execute("""
+                SELECT * FROM topics
+                WHERE chat_id = ? AND active = ?
+                ORDER BY created_at
+            """, (chat_id, True)).fetchall()
+
+            if not topic_rows:
+                return {}
+
+            articles_by_topic = {}
+
+            for topic_row in topic_rows:
+                topic_data = dict(topic_row)
+                topic_name = topic_data['name']
+
+                # Get recent articles with AI analysis
+                article_rows = conn.execute("""
+                    SELECT a.* FROM articles a
+                    JOIN feeds f ON a.source_feed = f.url
+                    WHERE f.chat_id = ? AND f.active = ?
+                    AND datetime(a.created_at) >= datetime('now', '-1 days')
+                    AND a.ai_relevance_score IS NOT NULL
+                    ORDER BY a.ai_relevance_score DESC, a.created_at DESC
+                    LIMIT ?
+                """, (chat_id, True, limit_per_topic)).fetchall()
+
+                if article_rows:
+                    articles = []
+                    for row in article_rows:
+                        article_data = dict(row)
+                        article = Article(**article_data)
+                        articles.append(article)
+
+                    if articles:
+                        articles_by_topic[topic_name] = articles
+
+            return articles_by_topic
 
     async def _send_message(self, chat_id: str, message: str, retries: int = 3) -> bool:
         """Send a message to a chat with retry logic.
@@ -318,11 +363,21 @@ class MessageSender:
         """
         try:
             with self.db.get_connection() as conn:
+                delivered_count = 0
                 for topic_name, articles in articles_by_topic.items():
                     for article in articles:
-                        # For Phase 4, we'll just log delivery
-                        # In Phase 3, this would update processing_results table
-                        self.logger.debug(f"Delivered article {article.id} to {chat_id}")
+                        # Mark as delivered in processing_results table
+                        cursor = conn.execute("""
+                            UPDATE processing_results 
+                            SET delivered = 1, delivery_error = NULL
+                            WHERE article_id = ? AND chat_id = ? AND topic_name = ?
+                        """, (article.id, chat_id, topic_name))
+                        
+                        if cursor.rowcount > 0:
+                            delivered_count += 1
+                            self.logger.debug(f"Marked article {article.id} as delivered for topic '{topic_name}'")
+                        else:
+                            self.logger.warning(f"Could not mark article {article.id} as delivered - no processing result found")
 
                 # Update channel's last delivery time
                 conn.execute("""
@@ -331,6 +386,8 @@ class MessageSender:
                     WHERE chat_id = ?
                 """, (datetime.now(timezone.utc), chat_id))
                 conn.commit()
+                
+                self.logger.info(f"Marked {delivered_count} articles as delivered for channel {chat_id}")
 
         except Exception as e:
             self.logger.error(f"Error marking articles as delivered: {e}")

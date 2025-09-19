@@ -275,6 +275,7 @@ class ProcessingPipeline:
         self.logger.info(f"Starting AI analysis for {len(articles)} articles across {len(topics)} topics")
         
         ai_processed_articles = []
+        processing_results = []  # Track article-topic relationships
         
         # Group articles by topic for processing
         for topic in topics:
@@ -321,7 +322,19 @@ class ProcessingPipeline:
                         article.ai_provider = ai_result.provider
                         article.ai_reasoning = ai_result.reasoning
                         
-                        ai_processed_articles.append(article)
+                        # Add to processed articles if not already added
+                        if article not in ai_processed_articles:
+                            ai_processed_articles.append(article)
+                        
+                        # Record the topic-article relationship
+                        processing_results.append({
+                            'article_id': article.id,
+                            'chat_id': topic.chat_id,  # Get chat_id from topic
+                            'topic_name': topic_name,
+                            'ai_relevance_score': ai_result.relevance_score,
+                            'confidence_score': ai_result.confidence,
+                            'summary': article.summary
+                        })
                         
                         self.logger.debug(
                             f"AI processed article '{article.title}' for topic '{topic_name}': "
@@ -338,16 +351,20 @@ class ProcessingPipeline:
                 except Exception as e:
                     self.logger.error(f"AI processing failed for article {article.id}: {e}")
                     # Include article without AI analysis if AI fails
-                    ai_processed_articles.append(article)
+                    if article not in ai_processed_articles:
+                        ai_processed_articles.append(article)
             
             self.logger.info(
                 f"AI processed {len([a for a, _ in selected if any(proc.id == a.id for proc in ai_processed_articles)])} "
                 f"out of {len(selected)} articles for topic '{topic_name}'"
             )
         
-        # Store processed articles in database
+        # Store processed articles and their topic relationships in database
         if ai_processed_articles:
             self._store_articles_for_processing(ai_processed_articles)
+        
+        if processing_results:
+            self._store_processing_results(processing_results)
         
         self.logger.info(f"AI analysis complete: {len(ai_processed_articles)} articles ready for delivery")
         
@@ -380,6 +397,36 @@ class ProcessingPipeline:
             conn.commit()
         
         self.logger.info(f"Stored {len(articles)} articles with AI analysis results")
+    
+    def _store_processing_results(self, processing_results: List[dict]) -> None:
+        """Store processing results with topic-article relationships.
+        
+        Args:
+            processing_results: List of processing result dictionaries
+        """
+        if not processing_results:
+            return
+        
+        with self.db.get_connection() as conn:
+            for result in processing_results:
+                # Insert or replace processing result
+                conn.execute("""
+                    INSERT OR REPLACE INTO processing_results 
+                    (article_id, chat_id, topic_name, ai_relevance_score, confidence_score, 
+                     summary, processed_at, delivered)
+                    VALUES (?, ?, ?, ?, ?, ?, datetime('now'), 0)
+                """, (
+                    result['article_id'],
+                    result['chat_id'], 
+                    result['topic_name'],
+                    result['ai_relevance_score'],
+                    result['confidence_score'],
+                    result.get('summary')
+                ))
+            
+            conn.commit()
+        
+        self.logger.info(f"Stored {len(processing_results)} processing results with topic relationships")
     
     def _create_empty_result(self, chat_id: str, errors: List[str]) -> PipelineResult:
         """Create empty pipeline result."""
