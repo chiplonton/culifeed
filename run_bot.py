@@ -18,12 +18,16 @@ sys.path.insert(0, str(project_root))
 from culifeed.bot.telegram_bot import TelegramBotService
 from culifeed.config.settings import get_settings
 from culifeed.utils.logging import setup_logger
+from culifeed.utils.process_lock import ensure_single_telegram_bot
 
 
 def main():
     """Main entry point for the bot service."""
-    # Load settings
+    # Load settings first to get bot token
     settings = get_settings()
+    
+    # Ensure only one bot instance is running with this token
+    lock = ensure_single_telegram_bot(settings.telegram.bot_token)
 
     # Setup logging
     setup_logger(
@@ -53,11 +57,14 @@ def main():
         bot_service.run()
         
     except KeyboardInterrupt:
-        print("\n👋 Bot stopped by user")
+        print("👋 Bot stopped by user")
     except Exception as e:
         logger.error(f"Fatal error: {e}")
         print(f"❌ Failed to start bot: {e}")
         sys.exit(1)
+    finally:
+        # Always release the lock
+        lock.release()
 
 
 if __name__ == "__main__":
