@@ -149,8 +149,12 @@ class TelegramBotService:
             BotCommand("status", "Show channel status and statistics"),
             BotCommand("topics", "List all topics for this channel"),
             BotCommand("addtopic", "Add a new topic with keywords"),
+            BotCommand("removetopic", "Remove a topic"),
+            BotCommand("edittopic", "Edit existing topic"),
             BotCommand("feeds", "List all RSS feeds for this channel"),
             BotCommand("addfeed", "Add a new RSS feed"),
+            BotCommand("removefeed", "Remove RSS feed"),
+            BotCommand("testfeed", "Test feed connectivity"),
             BotCommand("preview", "Preview latest content"),
             BotCommand("settings", "Show channel settings"),
         ]
