@@ -466,6 +466,27 @@ class GeminiProvider(AIProvider):
         # Add small delay for rate limiting
         await asyncio.sleep(0.2)
         
+        # Configure safety settings for RSS content analysis
+        # Use minimal blocking since we're analyzing legitimate news/technical content
+        safety_settings = [
+            {
+                "category": "HARM_CATEGORY_HATE_SPEECH",
+                "threshold": "BLOCK_NONE"
+            },
+            {
+                "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                "threshold": "BLOCK_NONE"
+            },
+            {
+                "category": "HARM_CATEGORY_HARASSMENT",
+                "threshold": "BLOCK_NONE"
+            },
+            {
+                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                "threshold": "BLOCK_ONLY_HIGH"
+            }
+        ]
+
         # Generate content asynchronously
         response = await self.model.generate_content_async(
             prompt,
@@ -474,7 +495,8 @@ class GeminiProvider(AIProvider):
                 max_output_tokens=500,
                 top_p=0.9,
                 top_k=40
-            )
+            ),
+            safety_settings=safety_settings
         )
         
         return response

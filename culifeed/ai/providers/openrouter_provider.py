@@ -44,8 +44,8 @@ class OpenRouterProvider(AIProvider):
     RECOMMENDED_MODELS = [
         "meta-llama/llama-3.2-3b-instruct:free",    # Free Llama model
         "mistralai/mistral-7b-instruct:free",       # Free Mistral model
-        "huggingface/meta-llama/llama-3.2-1b-instruct:free",  # Lightweight free model
-        "google/gemma-2-9b-it:free",                # Free Gemma model
+        # Removed invalid model: "huggingface/meta-llama/llama-3.2-1b-instruct:free"
+        # Removed models with frequent upstream issues: "google/gemma-2-9b-it:free"
     ]
 
     BASE_URL = "https://openrouter.ai/api/v1"
@@ -117,12 +117,7 @@ class OpenRouterProvider(AIProvider):
         """
         # Rate limiting check
         if not self._can_make_request():
-            return AIResult(
-                success=False,
-                error_message="Rate limit exceeded",
-                provider="openrouter",
-                error_code=ErrorCode.AI_RATE_LIMIT
-            )
+            return self._create_error_result("Rate limit exceeded")
 
         # Try each available model
         last_error = None
@@ -141,7 +136,7 @@ class OpenRouterProvider(AIProvider):
             success=False,
             error_message=error_msg,
             provider="openrouter",
-            error_code=ErrorCode.AI_REQUEST_FAILED
+            error_code=ErrorCode.AI_API_ERROR
         )
 
     async def _analyze_with_model(self, article: Article, topic: Topic, model_name: str) -> AIResult:
@@ -169,8 +164,7 @@ class OpenRouterProvider(AIProvider):
             result = self._parse_relevance_response(content)
 
             self.logger.debug(f"OpenRouter analysis successful with {model_name}")
-            return AIResult(
-                success=True,
+            return self._create_success_result(
                 relevance_score=result["relevance_score"],
                 confidence=result["confidence"],
                 reasoning=result["reasoning"],
@@ -189,13 +183,13 @@ class OpenRouterProvider(AIProvider):
             raise AIError(
                 f"OpenRouter API error: {e}",
                 provider="openrouter",
-                error_code=ErrorCode.AI_REQUEST_FAILED
+                error_code=ErrorCode.AI_API_ERROR
             )
         except Exception as e:
             raise AIError(
                 f"OpenRouter request failed: {e}",
                 provider="openrouter",
-                error_code=ErrorCode.AI_REQUEST_FAILED
+                error_code=ErrorCode.AI_API_ERROR
             )
 
     async def generate_summary(self, article: Article, max_sentences: int = 3) -> AIResult:
@@ -209,12 +203,7 @@ class OpenRouterProvider(AIProvider):
             AIResult with generated summary
         """
         if not self._can_make_request():
-            return AIResult(
-                success=False,
-                error_message="Rate limit exceeded",
-                provider="openrouter",
-                error_code=ErrorCode.AI_RATE_LIMIT
-            )
+            return self._create_error_result("Rate limit exceeded")
 
         # Try each available model
         for model_name in self.available_models:
@@ -224,12 +213,7 @@ class OpenRouterProvider(AIProvider):
                 self.logger.warning(f"Summary generation failed with {model_name}: {e}")
                 continue
 
-        return AIResult(
-            success=False,
-            error_message="All OpenRouter models failed for summary generation",
-            provider="openrouter",
-            error_code=ErrorCode.AI_REQUEST_FAILED
-        )
+        return self._create_error_result("All OpenRouter models failed for summary generation")
 
     async def _generate_summary_with_model(self, content: str, model_name: str) -> AIResult:
         """Generate summary using specific model."""
@@ -260,9 +244,11 @@ Provide a concise, informative summary that captures the essence of the article.
 
             summary = response.choices[0].message.content.strip()
 
-            return AIResult(
-                success=True,
-                content=summary,
+            return self._create_success_result(
+                relevance_score=1.0,  # Summary always succeeds if we get here
+                confidence=0.9,       # High confidence for summarization
+                summary=summary,
+                tokens_used=getattr(response.usage, 'total_tokens', None) if hasattr(response, 'usage') else None,
                 provider="openrouter",
                 model_used=model_name
             )
@@ -271,7 +257,7 @@ Provide a concise, informative summary that captures the essence of the article.
             raise AIError(
                 f"OpenRouter summary generation failed: {e}",
                 provider="openrouter",
-                error_code=ErrorCode.AI_REQUEST_FAILED
+                error_code=ErrorCode.AI_API_ERROR
             )
 
     async def generate_keywords(self, topic_name: str, context: str = "", max_keywords: int = 7) -> AIResult:
@@ -286,12 +272,7 @@ Provide a concise, informative summary that captures the essence of the article.
             AIResult with generated keywords
         """
         if not self._can_make_request():
-            return AIResult(
-                success=False,
-                error_message="Rate limit exceeded",
-                provider="openrouter",
-                error_code=ErrorCode.AI_RATE_LIMIT
-            )
+            return self._create_error_result("Rate limit exceeded")
 
         # Try each available model
         for model_name in self.available_models:
@@ -301,12 +282,7 @@ Provide a concise, informative summary that captures the essence of the article.
                 self.logger.warning(f"Keyword generation failed with {model_name}: {e}")
                 continue
 
-        return AIResult(
-            success=False,
-            error_message="All OpenRouter models failed for keyword generation",
-            provider="openrouter",
-            error_code=ErrorCode.AI_REQUEST_FAILED
-        )
+        return self._create_error_result("All OpenRouter models failed for keyword generation")
 
     async def _generate_keywords_with_model(self, topic_name: str, max_keywords: int, model_name: str) -> AIResult:
         """Generate keywords using specific model."""
@@ -353,8 +329,9 @@ Keywords:"""
             if not keywords:
                 keywords = [topic_name.lower()]
 
-            return AIResult(
-                success=True,
+            return self._create_success_result(
+                relevance_score=1.0,  # Keywords always succeed if we get here
+                confidence=0.9,       # High confidence for keyword generation
                 content=keywords,
                 provider="openrouter",
                 model_used=model_name
@@ -364,7 +341,7 @@ Keywords:"""
             raise AIError(
                 f"OpenRouter keyword generation failed: {e}",
                 provider="openrouter",
-                error_code=ErrorCode.AI_REQUEST_FAILED
+                error_code=ErrorCode.AI_API_ERROR
             )
 
     def _build_relevance_prompt(self, article: Article, topic: Topic) -> str:

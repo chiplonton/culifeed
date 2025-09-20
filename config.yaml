@@ -61,7 +61,7 @@ ai:
   # Multi-Model Configuration for Fallback
   gemini_models: ["gemini-2.5-flash", "gemini-2.5-flash-lite"]                        # Gemini models in priority order
   groq_models: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]  # Groq models: premium → economy
-  openrouter_models: ["meta-llama/llama-3.2-3b-instruct:free", "mistralai/mistral-7b-instruct:free"]  # OpenRouter FREE models
+  openrouter_models: ["meta-llama/llama-3.2-3b-instruct:free", "mistralai/mistral-7b-instruct:free"]  # OpenRouter FREE models (validated)
   openai_models: ["gpt-4o-mini"]                             # OpenAI models (future)
   
   # Legacy Model Configuration (backward compatibility)
