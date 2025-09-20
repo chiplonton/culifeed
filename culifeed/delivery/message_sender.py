@@ -260,47 +260,16 @@ class MessageSender:
     async def _get_articles_fallback(self, chat_id: str, limit_per_topic: int) -> Dict[str, List[Article]]:
         """Fallback method for getting articles when processing_results is empty.
         
-        This maintains backward compatibility during the transition period.
+        IMPORTANT: This method should return empty results to prevent delivering
+        all articles to all topics. The system should wait for proper AI processing.
         """
-        with self.db.get_connection() as conn:
-            # Get topics for this channel
-            topic_rows = conn.execute("""
-                SELECT * FROM topics
-                WHERE chat_id = ? AND active = ?
-                ORDER BY created_at
-            """, (chat_id, True)).fetchall()
-
-            if not topic_rows:
-                return {}
-
-            articles_by_topic = {}
-
-            for topic_row in topic_rows:
-                topic_data = dict(topic_row)
-                topic_name = topic_data['name']
-
-                # Get recent articles with AI analysis
-                article_rows = conn.execute("""
-                    SELECT a.* FROM articles a
-                    JOIN feeds f ON a.source_feed = f.url
-                    WHERE f.chat_id = ? AND f.active = ?
-                    AND datetime(a.created_at) >= datetime('now', '-1 days')
-                    AND a.ai_relevance_score IS NOT NULL
-                    ORDER BY a.ai_relevance_score DESC, a.created_at DESC
-                    LIMIT ?
-                """, (chat_id, True, limit_per_topic)).fetchall()
-
-                if article_rows:
-                    articles = []
-                    for row in article_rows:
-                        article_data = dict(row)
-                        article = Article(**article_data)
-                        articles.append(article)
-
-                    if articles:
-                        articles_by_topic[topic_name] = articles
-
-            return articles_by_topic
+        self.logger.warning(f"Fallback triggered for {chat_id} - processing_results table is empty")
+        self.logger.warning("Returning empty results to prevent incorrect article delivery")
+        self.logger.warning("Please ensure AI processing is working correctly")
+        
+        # Return empty results instead of all articles to all topics
+        # This prevents the original bug where unrelated articles get delivered
+        return {}
 
     async def _send_message(self, chat_id: str, message: str, retries: int = 3) -> bool:
         """Send a message to a chat with retry logic.

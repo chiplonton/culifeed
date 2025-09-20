@@ -23,6 +23,7 @@ class AIProvider(str, Enum):
     """Available AI providers."""
     GEMINI = "gemini"
     GROQ = "groq"
+    OPENROUTER = "openrouter"
     OPENAI = "openai"
 
 
@@ -117,16 +118,19 @@ class AISettings(BaseModel):
     """AI providers configuration."""
     gemini_api_key: Optional[str] = Field(default=None, description="Google Gemini API key")
     groq_api_key: Optional[str] = Field(default=None, description="Groq API key")
+    openrouter_api_key: Optional[str] = Field(default=None, description="OpenRouter API key")
     openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
     
     # Multi-model configuration for fallback
     gemini_models: List[str] = Field(default=["gemini-1.5-flash"], description="Gemini models in priority order")
     groq_models: List[str] = Field(default=["llama-3.3-70b-versatile", "llama-3.1-8b-instant"], description="Groq models in priority order")
+    openrouter_models: List[str] = Field(default=["meta-llama/llama-3.2-3b-instruct:free", "mistralai/mistral-7b-instruct:free"], description="OpenRouter FREE models in priority order")
     openai_models: List[str] = Field(default=["gpt-4o-mini"], description="OpenAI models in priority order")
     
     # Legacy single model fields (for backward compatibility)
     gemini_model: str = Field(default="gemini-1.5-flash", description="Primary Gemini model")
     groq_model: str = Field(default="llama-3.3-70b-versatile", description="Primary Groq model")
+    openrouter_model: str = Field(default="meta-llama/llama-3.2-3b-instruct:free", description="Primary OpenRouter FREE model")
     openai_model: str = Field(default="gpt-4o-mini", description="Primary OpenAI model")
     
     temperature: float = Field(default=0.1, ge=0.0, le=2.0, description="AI temperature setting")
@@ -138,6 +142,8 @@ class AISettings(BaseModel):
             return self.gemini_api_key
         elif provider == AIProvider.GROQ:
             return self.groq_api_key
+        elif provider == AIProvider.OPENROUTER:
+            return self.openrouter_api_key
         elif provider == AIProvider.OPENAI:
             return self.openai_api_key
         return None
@@ -148,6 +154,8 @@ class AISettings(BaseModel):
             return self.gemini_models
         elif provider == AIProvider.GROQ:
             return self.groq_models
+        elif provider == AIProvider.OPENROUTER:
+            return self.openrouter_models
         elif provider == AIProvider.OPENAI:
             return self.openai_models
         return []
