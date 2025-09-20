@@ -496,3 +496,81 @@ Keywords:"""
         if self._session:
             await self._session.close()
             self._session = None
+    
+    def set_model(self, model_name: str) -> None:
+        """Switch to a different model for this provider instance.
+        
+        Args:
+            model_name: New model name to use
+        """
+        if model_name in self.available_models:
+            self.model_name = model_name
+            self.logger.info(f"Switched HuggingFace model to: {model_name}")
+        else:
+            self.logger.warning(f"Unknown HuggingFace model: {model_name}, keeping current: {self.model_name}")
+    
+    async def analyze_relevance_with_model(self, article: Article, topic: Topic, model_name: str) -> AIResult:
+        """Analyze relevance with a specific model.
+        
+        Args:
+            article: Article to analyze
+            topic: Topic to match against
+            model_name: Specific model to use for this request
+            
+        Returns:
+            AIResult with relevance analysis
+        """
+        # Temporarily switch model
+        original_model = self.model_name
+        self.set_model(model_name)
+        
+        try:
+            result = await self.analyze_relevance(article, topic)
+            return result
+        finally:
+            # Restore original model
+            self.model_name = original_model
+    
+    async def generate_summary_with_model(self, article: Article, model_name: str, max_sentences: int = 3) -> AIResult:
+        """Generate summary with a specific model.
+        
+        Args:
+            article: Article to summarize
+            model_name: Specific model to use for this request
+            max_sentences: Maximum sentences in summary
+            
+        Returns:
+            AIResult with generated summary
+        """
+        # Temporarily switch model
+        original_model = self.model_name
+        self.set_model(model_name)
+        
+        try:
+            result = await self.generate_summary(article, max_sentences)
+            return result
+        finally:
+            # Restore original model
+            self.model_name = original_model
+    
+    @staticmethod
+    def get_available_models() -> List[str]:
+        """Get list of available HuggingFace models.
+        
+        Returns:
+            List of model names
+        """
+        return [
+            "microsoft/DialoGPT-medium",           # Conversational AI
+            "google/flan-t5-large",                # Text-to-text generation
+            "meta-llama/Llama-2-7b-chat-hf",      # Chat model (if available)
+            "mistralai/Mistral-7B-Instruct-v0.1", # Instruction following
+        ]
+    
+    def __str__(self) -> str:
+        """String representation of provider."""
+        return f"HuggingFaceProvider(model={self.model_name})"
+    
+    def __repr__(self) -> str:
+        """Detailed string representation."""
+        return f"HuggingFaceProvider(model={self.model_name}, rate_limit={self._request_count_minute}/{self.DEFAULT_RATE_LIMITS.requests_per_minute})"
