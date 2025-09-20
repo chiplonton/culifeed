@@ -138,14 +138,21 @@ class ProcessingPipeline:
                     fetch_duration, None, {}, errors
                 )
             
-            # Step 4: Process articles (normalize and deduplicate)
+            # Step 4: Process articles (normalize and deduplicate)  
+            # Don't check database to avoid filtering out articles we just stored
             unique_articles, dedup_stats = self.article_processor.process_articles(
-                all_articles, check_database=True
+                all_articles, check_database=False
             )
             
             self.logger.info(f"After deduplication: {len(unique_articles)} unique articles")
             
-            # Step 5: Get topics for channel
+            # Step 5: Store unique articles in database (before AI processing)
+            # This ensures articles are preserved even if AI processing fails
+            if unique_articles:
+                self._store_articles_basic(unique_articles, chat_id)
+                self.logger.info(f"Stored {len(unique_articles)} articles in database")
+
+            # Step 6: Get topics for channel
             topics = self._get_channel_topics(chat_id)
             if not topics:
                 self.logger.warning(f"No active topics found for channel {chat_id}")
@@ -156,8 +163,13 @@ class ProcessingPipeline:
                     fetch_duration, dedup_stats, {}, errors
                 )
             
-            # Step 6: Pre-filter articles
-            filter_results = self.pre_filter.filter_articles(unique_articles, topics)
+            # Step 7: Get unprocessed articles from database for AI analysis
+            # This includes articles just stored and any previously stored but unprocessed articles
+            unprocessed_articles = self._get_unprocessed_articles(chat_id)
+            self.logger.info(f"Found {len(unprocessed_articles)} unprocessed articles in database")
+            
+            # Step 8: Pre-filter articles
+            filter_results = self.pre_filter.filter_articles(unprocessed_articles, topics)
             passed_articles = [r.article for r in filter_results if r.passed_filter]
             
             # Count topic matches
@@ -168,12 +180,14 @@ class ProcessingPipeline:
             
             self.logger.info(f"After pre-filtering: {len(passed_articles)} articles ready for AI")
             
-            # Step 7: AI Analysis and Processing
+            # Step 9: AI Analysis and Processing
+            # Only pass filter results that correspond to articles that passed pre-filter
+            passed_filter_results = [r for r in filter_results if r.passed_filter]
             ai_processed_articles = await self._ai_analysis_and_processing(
-                passed_articles, filter_results, topics, max_articles_per_topic
+                passed_articles, passed_filter_results, topics, max_articles_per_topic
             )
             
-            # Step 8: Calculate final metrics
+            # Step 10: Calculate final metrics
             total_processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
             
             result = self._create_result(
@@ -275,6 +289,7 @@ class ProcessingPipeline:
         self.logger.info(f"Starting AI analysis for {len(articles)} articles across {len(topics)} topics")
         
         ai_processed_articles = []
+        processing_results = []  # Track article-topic relationships
         
         # Group articles by topic for processing
         for topic in topics:
@@ -286,7 +301,6 @@ class ProcessingPipeline:
             for article, filter_result in zip(articles, filter_results):
                 if filter_result.passed_filter and topic_name in filter_result.matched_topics:
                     topic_articles.append(article)
-            
             if not topic_articles:
                 self.logger.debug(f"No articles passed pre-filtering for topic '{topic_name}'")
                 continue
@@ -321,7 +335,19 @@ class ProcessingPipeline:
                         article.ai_provider = ai_result.provider
                         article.ai_reasoning = ai_result.reasoning
                         
-                        ai_processed_articles.append(article)
+                        # Add to processed articles if not already added
+                        if article not in ai_processed_articles:
+                            ai_processed_articles.append(article)
+                        
+                        # Record the topic-article relationship
+                        processing_results.append({
+                            'article_id': article.id,
+                            'chat_id': topic.chat_id,  # Get chat_id from topic
+                            'topic_name': topic_name,
+                            'ai_relevance_score': ai_result.relevance_score,
+                            'confidence_score': ai_result.confidence,
+                            'summary': article.summary
+                        })
                         
                         self.logger.debug(
                             f"AI processed article '{article.title}' for topic '{topic_name}': "
@@ -338,16 +364,20 @@ class ProcessingPipeline:
                 except Exception as e:
                     self.logger.error(f"AI processing failed for article {article.id}: {e}")
                     # Include article without AI analysis if AI fails
-                    ai_processed_articles.append(article)
+                    if article not in ai_processed_articles:
+                        ai_processed_articles.append(article)
             
             self.logger.info(
                 f"AI processed {len([a for a, _ in selected if any(proc.id == a.id for proc in ai_processed_articles)])} "
                 f"out of {len(selected)} articles for topic '{topic_name}'"
             )
         
-        # Store processed articles in database
+        # Store processed articles and their topic relationships in database
         if ai_processed_articles:
             self._store_articles_for_processing(ai_processed_articles)
+        
+        if processing_results:
+            self._store_processing_results(processing_results)
         
         self.logger.info(f"AI analysis complete: {len(ai_processed_articles)} articles ready for delivery")
         
@@ -380,6 +410,91 @@ class ProcessingPipeline:
             conn.commit()
         
         self.logger.info(f"Stored {len(articles)} articles with AI analysis results")
+    
+    def _store_articles_basic(self, articles: List[Article], chat_id: str) -> None:
+        """Store articles in database without AI analysis results.
+        
+        Args:
+            articles: Articles to store (before AI processing)
+            chat_id: Channel chat ID for context
+        """
+        if not articles:
+            return
+        
+        with self.db.get_connection() as conn:
+            for article in articles:
+                # Insert or update article with basic fields only
+                conn.execute("""
+                    INSERT OR REPLACE INTO articles 
+                    (id, title, url, content, published_at, source_feed, content_hash, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    article.id, article.title, str(article.url), article.content,
+                    article.published_at, article.source_feed, article.content_hash,
+                    article.created_at
+                ))
+            
+            conn.commit()
+        
+        self.logger.info(f"Stored {len(articles)} articles in database for chat {chat_id}")
+    
+    def _get_unprocessed_articles(self, chat_id: str) -> List[Article]:
+        """Get articles from database that haven't been processed with AI yet.
+        
+        Args:
+            chat_id: Channel chat ID
+            
+        Returns:
+            List of articles without AI processing results
+        """
+        with self.db.get_connection() as conn:
+            # Get articles from feeds belonging to this chat that don't have AI scores
+            rows = conn.execute("""
+                SELECT a.* FROM articles a
+                JOIN feeds f ON a.source_feed = f.url
+                WHERE f.chat_id = ? 
+                AND a.ai_relevance_score IS NULL
+                AND datetime(a.created_at) >= datetime('now', '-2 days')
+                ORDER BY a.published_at DESC
+            """, (chat_id,)).fetchall()
+            
+            articles = []
+            for row in rows:
+                article_data = dict(row)
+                article = Article(**article_data)
+                articles.append(article)
+            
+            return articles
+    
+    def _store_processing_results(self, processing_results: List[dict]) -> None:
+        """Store processing results with topic-article relationships.
+        
+        Args:
+            processing_results: List of processing result dictionaries
+        """
+        if not processing_results:
+            return
+        
+        with self.db.get_connection() as conn:
+            for result in processing_results:
+                # Insert or replace processing result
+                conn.execute("""
+                    INSERT OR REPLACE INTO processing_results 
+                    (article_id, chat_id, topic_name, ai_relevance_score, confidence_score, 
+                     summary, processed_at, delivered)
+                    VALUES (?, ?, ?, ?, ?, ?, datetime('now'), 0)
+                """, (
+                    result['article_id'],
+                    result['chat_id'], 
+                    result['topic_name'],
+                    result['ai_relevance_score'],
+                    result['confidence_score'],
+                    result.get('summary')
+                ))
+            
+            conn.commit()
+        
+        self.logger.info(f"Stored {len(processing_results)} processing results with topic relationships")
     
     def _create_empty_result(self, chat_id: str, errors: List[str]) -> PipelineResult:
         """Create empty pipeline result."""

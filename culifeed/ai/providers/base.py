@@ -19,6 +19,8 @@ from ...utils.exceptions import CuliFeedError, ErrorCode
 class AIProviderType(str, Enum):
     """Available AI provider types."""
     GROQ = "groq"
+    HUGGINGFACE = "huggingface"
+    OPENROUTER = "openrouter"
     GEMINI = "gemini"
     OPENAI = "openai"
 

@@ -320,8 +320,9 @@ class TopicCommandHandler:
     async def _generate_keywords_with_ai(self, topic_name: str, chat_id: str) -> List[str]:
         """Generate keywords for a topic using AI."""
         try:
-            existing_topics = self.topic_repo.get_topics_for_channel(chat_id, active_only=True)
-            context = f" User interests: {', '.join([t.name for t in existing_topics[:5]])}." if existing_topics else ""
+            # Remove context contamination to prevent keyword bleeding between unrelated topics
+            # Each topic should generate keywords based solely on its own content
+            context = ""
             
             # Use AIManager with proper fallback strategy - same as other AI operations
             result = await self.ai_manager.generate_keywords(topic_name, context, max_keywords=7)
