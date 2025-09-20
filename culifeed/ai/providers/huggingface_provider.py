@@ -116,17 +116,7 @@ class HuggingFaceProvider(AIProvider):
                 self.logger.warning(f"Model {model_name} failed: {e}")
                 continue
         
-        # All models failed
-        error_msg = f"All HuggingFace models failed. Last error: {last_error}"
-        self.logger.error(error_msg)
-        return AIResult(
-            success=False,
-            relevance_score=0.0,
-            confidence=0.0,
-            error_message=error_msg,
-            provider="huggingface",
-            error_code=ErrorCode.AI_API_ERROR
-        )
+        return self._create_error_result("All HuggingFace models failed")
     
     async def _analyze_with_model(self, article: Article, topic: Topic, model_name: str) -> AIResult:
         """Analyze relevance using specific model."""
