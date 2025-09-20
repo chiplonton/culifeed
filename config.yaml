@@ -55,18 +55,21 @@ telegram:
 ai:
   gemini_api_key: "${CULIFEED_AI__GEMINI_API_KEY}"  # Google Gemini API key (final fallback)
   groq_api_key: "${CULIFEED_AI__GROQ_API_KEY}"      # Groq API key (primary)
-  openrouter_api_key: "${CULIFEED_AI__OPENROUTER_API_KEY}"  # OpenRouter API key (secondary)
+  huggingface_api_key: "${CULIFEED_AI__HUGGINGFACE_API_KEY}"  # HuggingFace API key (secondary)
+  openrouter_api_key: "${CULIFEED_AI__OPENROUTER_API_KEY}"  # OpenRouter API key (tertiary)
   openai_api_key: "${CULIFEED_AI__OPENAI_API_KEY}"  # OpenAI API key (optional)
   
   # Multi-Model Configuration for Fallback
   gemini_models: ["gemini-2.5-flash", "gemini-2.5-flash-lite"]                        # Gemini models in priority order
   groq_models: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]  # Groq models: premium → economy
+  huggingface_models: ["microsoft/DialoGPT-medium", "google/flan-t5-large"]  # HuggingFace FREE models: high capacity (24K daily)
   openrouter_models: ["meta-llama/llama-3.2-3b-instruct:free", "mistralai/mistral-7b-instruct:free"]  # OpenRouter FREE models (validated)
   openai_models: ["gpt-4o-mini"]                             # OpenAI models (future)
   
   # Legacy Model Configuration (backward compatibility)
   gemini_model: "gemini-1.5-flash"       # Primary Gemini model
   groq_model: "llama-3.3-70b-versatile"  # Primary Groq model
+  huggingface_model: "microsoft/DialoGPT-medium"  # Primary HuggingFace model
   openrouter_model: "meta-llama/llama-3.2-3b-instruct:free"  # Primary OpenRouter FREE model
   openai_model: "gpt-4o-mini"            # Primary OpenAI model
   

@@ -14,6 +14,7 @@ from enum import Enum
 
 from .providers.base import AIProvider, AIResult, AIError, AIProviderType, RateLimitInfo
 from .providers.groq_provider import GroqProvider
+from .providers.huggingface_provider import HuggingFaceProvider
 from .providers.openrouter_provider import OpenRouterProvider
 from .providers.gemini_provider import GeminiProvider
 from ..database.models import Article, Topic
@@ -131,6 +132,22 @@ class AIManager:
             except Exception as e:
                 self.logger.warning(f"Failed to initialize Groq provider: {e}")
 
+        # Initialize HuggingFace if API key available
+        if self.settings.ai.huggingface_api_key:
+            try:
+                huggingface_provider = HuggingFaceProvider(
+                    api_key=self.settings.ai.huggingface_api_key,
+                    model_name=getattr(self.settings.ai, 'huggingface_model', None)
+                )
+                self.providers[AIProviderType.HUGGINGFACE] = huggingface_provider
+                self.provider_health[AIProviderType.HUGGINGFACE] = ProviderHealth(
+                    provider_type=AIProviderType.HUGGINGFACE,
+                    available=True
+                )
+                self.logger.info("HuggingFace provider initialized successfully")
+            except Exception as e:
+                self.logger.warning(f"Failed to initialize HuggingFace provider: {e}")
+
         # Initialize OpenRouter if API key available
         if self.settings.ai.openrouter_api_key:
             try:
@@ -173,6 +190,8 @@ class AIManager:
             # Get models for this provider from settings
             if provider_type == AIProviderType.GROQ:
                 models = self.settings.ai.get_models_for_provider(ConfigAIProvider.GROQ)
+            elif provider_type == AIProviderType.HUGGINGFACE:
+                models = self.settings.ai.get_models_for_provider(ConfigAIProvider.HUGGINGFACE)
             elif provider_type == AIProviderType.OPENROUTER:
                 models = self.settings.ai.get_models_for_provider(ConfigAIProvider.OPENROUTER)
             elif provider_type == AIProviderType.GEMINI:
@@ -382,10 +401,11 @@ class AIManager:
         """
         # Define explicit priority order for reliable fallback chain
         PRIORITY_ORDER = [
-            AIProviderType.GROQ,       # Primary: Fast and reliable
-            AIProviderType.OPENROUTER, # Secondary: Free models with diversity
-            AIProviderType.GEMINI,     # Final fallback: Proven reliability
-            AIProviderType.OPENAI      # Last resort: Premium models
+            AIProviderType.GROQ,        # Primary: Fast and reliable
+            AIProviderType.HUGGINGFACE, # Secondary: High capacity free tier (24K daily)
+            AIProviderType.OPENROUTER,  # Tertiary: Free models with diversity
+            AIProviderType.GEMINI,      # Final fallback: Proven reliability
+            AIProviderType.OPENAI       # Last resort: Premium models
         ]
 
         available_providers = []
@@ -423,6 +443,8 @@ class AIManager:
         # Direct mapping from config AIProvider enum values to AIProviderType
         if config_provider == ConfigAIProvider.GROQ:
             return AIProviderType.GROQ
+        elif config_provider == ConfigAIProvider.HUGGINGFACE:
+            return AIProviderType.HUGGINGFACE
         elif config_provider == ConfigAIProvider.OPENROUTER:
             return AIProviderType.OPENROUTER
         elif config_provider == ConfigAIProvider.GEMINI:
