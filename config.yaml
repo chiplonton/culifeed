@@ -75,6 +75,15 @@ ai:
   
   temperature: 0.1                       # AI temperature (0.0-2.0)
   max_tokens: 500                        # Maximum tokens per response
+  
+  # Provider Priority Configuration (NEW - Dynamic AI provider ordering)
+  provider_priority_profile: "cost_optimized"  # Options: cost_optimized, quality_first, balanced, custom
+  custom_provider_order: []              # Custom provider order when using "custom" profile
+  # Examples:
+  # cost_optimized: groq → huggingface → openrouter → gemini → openai (default, free tiers first)
+  # quality_first: openai → gemini → groq → huggingface → openrouter (premium models first)
+  # balanced: gemini → groq → openai → huggingface → openrouter (mix of cost/quality)
+  # custom: ["openai", "gemini"] (user-defined order, only specified providers)
 
 # Trust Validation Settings (New - Phase 1 configurable thresholds)
 trust_validation:
@@ -168,6 +177,9 @@ delivery_quality:
   good_quality_threshold: 0.65          # Confidence threshold for good quality articles
   moderate_quality_threshold: 0.45      # Confidence threshold for moderate quality articles
   low_quality_threshold: 0.0            # Confidence threshold for low quality articles (anything above)
+  
+  # Content length limits - SINGLE SOURCE OF TRUTH
+  max_summary_length: 700               # Maximum length for both AI summaries and content previews (prevents message overflow)
   
   # Reading time estimation for digest formatting
   reading_time_per_article: 0.5         # Estimated reading time per article in minutes

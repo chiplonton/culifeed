@@ -145,18 +145,12 @@ async def main():
             
             result = await scheduler.run_daily_processing(dry_run=args.dry_run)
             
-            if result['success']:
-                print(f"✅ Processing completed successfully")
-                print(f"📊 Processed {result['channels_processed']} channels, {result['total_articles_processed']} articles")
-                print(f"⏱️ Duration: {result['duration_seconds']:.1f} seconds")
-                logger.info("Daily processing completed successfully")
-                sys.exit(0)
-            else:
-                print(f"❌ Processing failed: {result.get('message', 'Unknown error')}")
-                if result.get('errors_count', 0) > 0:
-                    print(f"🚨 Encountered {result['errors_count']} errors")
-                logger.error(f"Daily processing failed: {result.get('message', 'Unknown error')}")
-                sys.exit(1)
+            # Use enhanced formatting for detailed output
+            formatted_summary = scheduler.format_processing_summary(result)
+            print(formatted_summary)
+            
+            logger.info("Daily processing completed successfully" if result['success'] else f"Daily processing failed: {result.get('message', 'Unknown error')}")
+            sys.exit(0 if result['success'] else 1)
                 
     except KeyboardInterrupt:
         print("\n👋 Scheduler stopped by user")

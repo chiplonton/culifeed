@@ -28,6 +28,14 @@ class AIProvider(str, Enum):
     OPENAI = "openai"
 
 
+class ProviderPriority(str, Enum):
+    """Predefined provider priority profiles."""
+    COST_OPTIMIZED = "cost_optimized"     # Free tiers first
+    QUALITY_FIRST = "quality_first"       # Premium models first  
+    BALANCED = "balanced"                 # Mix of cost and quality
+    CUSTOM = "custom"                     # User-defined order
+
+
 class LogLevel(str, Enum):
     """Available log levels."""
     DEBUG = "DEBUG"
@@ -263,6 +271,14 @@ class DeliveryQualitySettings(BaseModel):
         description="Confidence threshold for low quality articles (anything above)"
     )
     
+    # Content length limits - SINGLE SOURCE OF TRUTH
+    max_summary_length: int = Field(
+        default=700,
+        ge=100,
+        le=2000,
+        description="Maximum length for both AI summaries and content previews (prevents message overflow)"
+    )
+    
     # Reading time estimation
     reading_time_per_article: float = Field(
         default=0.5, 
@@ -376,6 +392,16 @@ class AISettings(BaseModel):
     temperature: float = Field(default=0.1, ge=0.0, le=2.0, description="AI temperature setting")
     max_tokens: int = Field(default=500, ge=50, le=2000, description="Maximum tokens per response")
     
+    # Provider Priority Configuration
+    provider_priority_profile: ProviderPriority = Field(
+        default=ProviderPriority.COST_OPTIMIZED, 
+        description="Provider priority strategy: cost_optimized, quality_first, balanced, or custom"
+    )
+    custom_provider_order: List[AIProvider] = Field(
+        default_factory=list,
+        description="Custom provider priority order (used when profile is 'custom')"
+    )
+    
     def get_primary_api_key(self, provider: AIProvider) -> Optional[str]:
         """Get API key for specified provider."""
         if provider == AIProvider.GEMINI:
@@ -407,6 +433,55 @@ class AISettings(BaseModel):
     def validate_provider_key(self, provider: AIProvider) -> bool:
         """Check if API key is available for provider."""
         return bool(self.get_primary_api_key(provider))
+    
+    def get_provider_priority_order(self) -> List[AIProvider]:
+        """Get provider priority order based on configuration.
+        
+        Returns:
+            List of providers in priority order based on profile
+        """
+        if self.provider_priority_profile == ProviderPriority.CUSTOM:
+            if self.custom_provider_order:
+                return list(self.custom_provider_order)
+            else:
+                # Fallback to cost optimized if custom is empty
+                return [AIProvider.GROQ, AIProvider.HUGGINGFACE, AIProvider.OPENROUTER, 
+                       AIProvider.GEMINI, AIProvider.OPENAI]
+        
+        elif self.provider_priority_profile == ProviderPriority.QUALITY_FIRST:
+            return [AIProvider.OPENAI, AIProvider.GEMINI, AIProvider.GROQ, 
+                   AIProvider.HUGGINGFACE, AIProvider.OPENROUTER]
+        
+        elif self.provider_priority_profile == ProviderPriority.BALANCED:
+            return [AIProvider.GEMINI, AIProvider.GROQ, AIProvider.OPENAI,
+                   AIProvider.HUGGINGFACE, AIProvider.OPENROUTER]
+        
+        else:  # COST_OPTIMIZED (default)
+            return [AIProvider.GROQ, AIProvider.HUGGINGFACE, AIProvider.OPENROUTER, 
+                   AIProvider.GEMINI, AIProvider.OPENAI]
+    
+    def validate_priority_configuration(self) -> List[str]:
+        """Validate provider priority configuration.
+        
+        Returns:
+            List of validation errors (empty if valid)
+        """
+        errors = []
+        
+        if self.provider_priority_profile == ProviderPriority.CUSTOM:
+            if not self.custom_provider_order:
+                errors.append("Custom provider order is empty when using custom profile")
+            else:
+                # Check for duplicates
+                if len(self.custom_provider_order) != len(set(self.custom_provider_order)):
+                    errors.append("Duplicate providers found in custom_provider_order")
+                
+                # Check for invalid providers
+                for provider in self.custom_provider_order:
+                    if provider not in AIProvider:
+                        errors.append(f"Invalid provider in custom order: {provider}")
+        
+        return errors
 
 
 class UserSettings(BaseModel):

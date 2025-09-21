@@ -18,7 +18,7 @@ from .providers.huggingface_provider import HuggingFaceProvider
 from .providers.openrouter_provider import OpenRouterProvider
 from .providers.gemini_provider import GeminiProvider
 from ..database.models import Article, Topic
-from ..config.settings import get_settings, AIProvider as ConfigAIProvider
+from ..config.settings import get_settings, AIProvider as ConfigAIProvider, ProviderPriority
 from ..utils.logging import get_logger_for_component
 from ..utils.exceptions import ErrorCode
 # Monitoring imports will be done lazily to avoid circular imports
@@ -101,6 +101,9 @@ class AIManager:
 
         self.quality_monitor = QualityMonitor(self.settings)
         self.trust_validator = TrustValidator(self.settings)
+
+        # Validate provider priority configuration
+        self._validate_and_log_provider_configuration()
 
         self.logger.info(
             f"AI Manager initialized with primary: {self.primary_provider}, "
@@ -470,41 +473,53 @@ class AIManager:
         return self._create_fallback_keywords(topic_name, max_keywords)
     
     def _get_provider_priority_order(self) -> List[AIProviderType]:
-        """Get provider priority order: Groq → OpenRouter → Gemini → OpenAI.
+        """Get provider priority order based on user configuration.
 
         Returns:
-            List of provider types in priority order
+            List of provider types in priority order based on settings
         """
-        # Define explicit priority order for reliable fallback chain
-        PRIORITY_ORDER = [
-            AIProviderType.GROQ,        # Primary: Fast and reliable
-            AIProviderType.HUGGINGFACE, # Secondary: High capacity free tier (24K daily)
-            AIProviderType.OPENROUTER,  # Tertiary: Free models with diversity
-            AIProviderType.GEMINI,      # Final fallback: Proven reliability
-            AIProviderType.OPENAI       # Last resort: Premium models
-        ]
-
+        # Get configured provider priority order
+        config_providers = self.settings.ai.get_provider_priority_order()
+        
+        # Convert config providers to provider types and filter available
+        priority_order = []
+        for config_provider in config_providers:
+            provider_type = self._config_to_provider_type(config_provider)
+            if provider_type:
+                priority_order.append(provider_type)
+        
+        # Log the configured priority for debugging
+        profile = self.settings.ai.provider_priority_profile
+        if profile == ProviderPriority.CUSTOM:
+            self.logger.info(f"Using custom provider priority: {[p.value for p in config_providers]}")
+        else:
+            self.logger.info(f"Using {profile.value} provider priority profile")
+        
+        # Filter available and healthy providers
         available_providers = []
 
-        # Add providers in priority order if they're available and healthy
-        for provider_type in PRIORITY_ORDER:
+        # Add providers in configured priority order if they're available and healthy
+        for provider_type in priority_order:
             if provider_type in self.providers:
                 health = self.provider_health.get(provider_type)
                 if health and health.is_healthy:
                     available_providers.append(provider_type)
 
-        # Add any remaining healthy providers not in explicit order
+        # Add any remaining healthy providers not in configured order
         for provider_type, health in self.provider_health.items():
             if provider_type not in available_providers and health.is_healthy:
                 available_providers.append(provider_type)
 
         # Add unhealthy providers as last resort (if not rate limited)
-        for provider_type in PRIORITY_ORDER:
+        for provider_type in priority_order:
             if provider_type in self.providers and provider_type not in available_providers:
                 health = self.provider_health.get(provider_type)
                 if health and not health.rate_limited:
                     available_providers.append(provider_type)
 
+        # Log final provider order for debugging
+        self.logger.debug(f"Final provider priority order: {[p.value for p in available_providers]}")
+        
         return available_providers
     
     def _config_to_provider_type(self, config_provider: ConfigAIProvider) -> Optional[AIProviderType]:
@@ -777,6 +792,115 @@ class AIManager:
             Comprehensive quality report
         """
         return self.quality_monitor.generate_quality_report()
+
+    def _validate_and_log_provider_configuration(self) -> None:
+        """Validate and log provider priority configuration."""
+        try:
+            # Validate priority configuration
+            validation_errors = self.settings.ai.validate_priority_configuration()
+            if validation_errors:
+                for error in validation_errors:
+                    self.logger.error(f"Provider priority configuration error: {error}")
+                raise ValueError(f"Invalid provider priority configuration: {'; '.join(validation_errors)}")
+            
+            # Log provider priority configuration
+            profile = self.settings.ai.provider_priority_profile
+            priority_order = self.settings.ai.get_provider_priority_order()
+            
+            self.logger.info(f"Provider priority profile: {profile.value}")
+            self.logger.info(f"Configured provider order: {[p.value for p in priority_order]}")
+            
+            # Log available vs configured providers
+            available_providers = set(self.providers.keys())
+            configured_provider_types = set()
+            
+            for config_provider in priority_order:
+                provider_type = self._config_to_provider_type(config_provider)
+                if provider_type:
+                    configured_provider_types.add(provider_type)
+            
+            # Warn about configured but unavailable providers
+            unavailable_configured = configured_provider_types - available_providers
+            if unavailable_configured:
+                self.logger.warning(
+                    f"Configured providers not available (missing API keys): "
+                    f"{[p.value for p in unavailable_configured]}"
+                )
+            
+            # Info about available but not configured providers
+            available_not_configured = available_providers - configured_provider_types
+            if available_not_configured:
+                self.logger.info(
+                    f"Available providers not in priority order (will be added as fallback): "
+                    f"{[p.value for p in available_not_configured]}"
+                )
+            
+            # Log final effective priority order
+            effective_order = self._get_provider_priority_order()
+            self.logger.info(f"Effective provider priority order: {[p.value for p in effective_order]}")
+            
+        except Exception as e:
+            self.logger.error(f"Error validating provider configuration: {e}")
+            raise
+
+    def log_provider_selection_decision(self, selected_provider: AIProviderType, 
+                                      attempt_number: int, total_attempts: int) -> None:
+        """Log provider selection decision for debugging.
+        
+        Args:
+            selected_provider: Provider type that was selected
+            attempt_number: Current attempt number (1-based)
+            total_attempts: Total number of attempts available
+        """
+        health = self.provider_health.get(selected_provider)
+        health_status = "healthy" if health and health.is_healthy else "unhealthy"
+        
+        self.logger.debug(
+            f"Provider selection: attempt {attempt_number}/{total_attempts}, "
+            f"selected {selected_provider.value} ({health_status})"
+        )
+        
+        if health:
+            self.logger.debug(
+                f"Provider {selected_provider.value} stats: "
+                f"errors={health.error_count}, consecutive_errors={health.consecutive_errors}, "
+                f"rate_limited={health.rate_limited}"
+            )
+
+    def generate_provider_priority_report(self) -> Dict[str, Any]:
+        """Generate comprehensive provider priority report for monitoring.
+        
+        Returns:
+            Dictionary with provider priority analysis
+        """
+        profile = self.settings.ai.provider_priority_profile
+        configured_order = self.settings.ai.get_provider_priority_order()
+        effective_order = self._get_provider_priority_order()
+        
+        # Analyze provider availability
+        provider_analysis = {}
+        for config_provider in configured_order:
+            provider_type = self._config_to_provider_type(config_provider)
+            if provider_type:
+                health = self.provider_health.get(provider_type)
+                provider_analysis[config_provider.value] = {
+                    'available': provider_type in self.providers,
+                    'healthy': health.is_healthy if health else False,
+                    'position_configured': configured_order.index(config_provider) + 1,
+                    'position_effective': effective_order.index(provider_type) + 1 if provider_type in effective_order else None,
+                    'error_count': health.error_count if health else 0,
+                    'rate_limited': health.rate_limited if health else False
+                }
+        
+        return {
+            'priority_profile': profile.value,
+            'configured_order': [p.value for p in configured_order],
+            'effective_order': [p.value for p in effective_order],
+            'provider_analysis': provider_analysis,
+            'validation_errors': self.settings.ai.validate_priority_configuration(),
+            'total_available_providers': len(self.providers),
+            'total_healthy_providers': sum(1 for h in self.provider_health.values() if h.is_healthy)
+        }
 
     async def shutdown(self) -> None:
         """Cleanup resources and close provider connections."""

@@ -50,10 +50,11 @@ class DigestFormatter:
         
         self.settings = settings
         
-        # Format-specific limits with expanded summary lengths for better AI summary display
+        # Format-specific limits using centralized config for summary length
+        max_summary = self.settings.delivery_quality.max_summary_length  # SINGLE SOURCE OF TRUTH
         self.format_limits = {
             DigestFormat.COMPACT: {'articles_per_topic': 3, 'title_length': 120, 'summary_length': 100},
-            DigestFormat.DETAILED: {'articles_per_topic': 5, 'title_length': 120, 'summary_length': 700},  # Increased for full AI summaries
+            DigestFormat.DETAILED: {'articles_per_topic': 5, 'title_length': 120, 'summary_length': max_summary},  # Use centralized config
             DigestFormat.SUMMARY: {'articles_per_topic': 8, 'title_length': 120, 'summary_length': 0},
             DigestFormat.HEADLINES: {'articles_per_topic': 10, 'title_length': 120, 'summary_length': 0}
         }
@@ -387,25 +388,32 @@ class DigestFormatter:
         if not content:
             return ""
 
+        # SAFETY: Use centralized config - SINGLE SOURCE OF TRUTH
+        absolute_max = min(max_length, self.settings.delivery_quality.max_summary_length)
+        
         # Clean up content
         cleaned = re.sub(r'\s+', ' ', content.strip())
 
+        # SAFETY: Truncate to absolute max first
+        if len(cleaned) > absolute_max * 3:  # If content is way too long
+            cleaned = cleaned[:absolute_max * 3]
+
         # Find a good break point
-        if len(cleaned) <= max_length:
+        if len(cleaned) <= absolute_max:
             return cleaned
 
         # Try to break at sentence end
-        preview = cleaned[:max_length]
+        preview = cleaned[:absolute_max]
         last_period = preview.rfind('.')
         last_exclamation = preview.rfind('!')
         last_question = preview.rfind('?')
 
         best_break = max(last_period, last_exclamation, last_question)
 
-        if best_break > max_length * self.settings.delivery_quality.content_break_threshold:  # If break point is reasonable
+        if best_break > absolute_max * self.settings.delivery_quality.content_break_threshold:  # If break point is reasonable
             return cleaned[:best_break + 1]
         else:
-            return cleaned[:max_length - 3] + "..."
+            return cleaned[:absolute_max - 3] + "..."
 
     def _extract_source_name(self, source_feed: str) -> str:
         """Extract a readable source name from feed URL.

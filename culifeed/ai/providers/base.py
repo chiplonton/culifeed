@@ -105,6 +105,10 @@ class AIProvider(ABC):
         self.model_name = model_name
         self.provider_type = provider_type
         self._rate_limit_info: Optional[RateLimitInfo] = None
+        
+        # Import settings for centralized config access
+        from ...config.settings import get_settings
+        self._settings = get_settings()
     
     @abstractmethod
     async def analyze_relevance(self, article: Article, topic: Topic) -> AIResult:
@@ -287,19 +291,23 @@ REASONING: [brief explanation]"""
         Returns:
             Formatted prompt string with length constraints
         """
-        return f"""Summarize this article in 500-700 characters. This summary will be displayed on mobile devices, so it must be concise yet comprehensive.
+        # Use centralized config - SINGLE SOURCE OF TRUTH
+        max_chars = self._settings.delivery_quality.max_summary_length
+        min_chars = max(300, int(max_chars * 0.7))  # Minimum 70% of max, at least 300
+        
+        return f"""Summarize this article in {min_chars}-{max_chars} characters. This summary will be displayed on mobile devices, so it must be concise yet comprehensive.
 
 ARTICLE TITLE: {article.title}
 ARTICLE CONTENT: {article.content}
 
 Requirements:
-1. Keep summary between 500-700 characters (including spaces)
+1. Keep summary between {min_chars}-{max_chars} characters (including spaces)
 2. Write 2-4 clear, informative sentences 
 3. Capture the main points and key benefits/implications
 4. Use clear, concise language suitable for mobile reading
 5. Maintain factual accuracy
 6. Focus on the most important aspects and business value
-7. Do NOT exceed 700 characters total
+7. Do NOT exceed {max_chars} characters total
 
 SUMMARY:"""
     

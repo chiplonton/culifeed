@@ -30,7 +30,7 @@ from ..ai.providers.base import AIResult
 
 @dataclass
 class PipelineResult:
-    """Result of complete pipeline processing."""
+    """Result of complete pipeline processing with comprehensive metrics."""
     channel_id: str
     total_feeds_processed: int
     successful_feed_fetches: int
@@ -44,6 +44,26 @@ class PipelineResult:
     topic_matches: Dict[str, int]
     errors: List[str]
     
+    # Enhanced AI Processing Metrics
+    ai_requests_sent: int = 0
+    ai_requests_successful: int = 0
+    ai_requests_failed: int = 0
+    ai_provider_breakdown: Dict[str, Dict[str, int]] = None  # provider -> {requests, successes, failures}
+    ai_processing_time_seconds: float = 0.0
+    articles_processed_by_ai: int = 0
+    articles_ai_relevant: int = 0  # Articles with relevance score >= threshold
+    
+    # Delivery Metrics
+    articles_sent_to_telegram: int = 0
+    telegram_messages_sent: int = 0
+    telegram_delivery_failures: int = 0
+    delivery_time_seconds: float = 0.0
+    
+    def __post_init__(self):
+        """Initialize nested dictionaries if None."""
+        if self.ai_provider_breakdown is None:
+            self.ai_provider_breakdown = {}
+    
     @property
     def efficiency_metrics(self) -> Dict[str, float]:
         """Calculate efficiency metrics."""
@@ -52,8 +72,26 @@ class PipelineResult:
             'deduplication_rate': self.deduplication_stats.deduplication_rate if self.deduplication_stats else 0.0,
             'prefilter_reduction': ((self.unique_articles_after_dedup - self.articles_passed_prefilter) / self.unique_articles_after_dedup) * 100 if self.unique_articles_after_dedup > 0 else 0.0,
             'overall_reduction': ((self.total_articles_fetched - self.articles_ready_for_ai) / self.total_articles_fetched) * 100 if self.total_articles_fetched > 0 else 0.0,
-            'articles_per_second': self.total_articles_fetched / self.processing_time_seconds if self.processing_time_seconds > 0 else 0.0
+            'articles_per_second': self.total_articles_fetched / self.processing_time_seconds if self.processing_time_seconds > 0 else 0.0,
+            'ai_success_rate': (self.ai_requests_successful / self.ai_requests_sent) * 100 if self.ai_requests_sent > 0 else 0.0,
+            'ai_relevance_rate': (self.articles_ai_relevant / self.articles_processed_by_ai) * 100 if self.articles_processed_by_ai > 0 else 0.0,
+            'delivery_success_rate': ((self.articles_sent_to_telegram - self.telegram_delivery_failures) / self.articles_sent_to_telegram) * 100 if self.articles_sent_to_telegram > 0 else 100.0
         }
+    
+    @property 
+    def ai_provider_summary(self) -> Dict[str, str]:
+        """Get AI provider usage summary."""
+        if not self.ai_provider_breakdown:
+            return {}
+        
+        summary = {}
+        for provider, stats in self.ai_provider_breakdown.items():
+            requests = stats.get('requests', 0)
+            successes = stats.get('successes', 0)
+            success_rate = (successes / requests * 100) if requests > 0 else 0
+            summary[provider] = f"{requests} requests ({success_rate:.1f}% success)"
+        
+        return summary
 
 
 class ProcessingPipeline:
@@ -570,8 +608,11 @@ class ProcessingPipeline:
                       total_articles: int, unique_articles: int, passed_filter: int,
                       ai_ready: int, processing_time: float, fetch_time: float,
                       dedup_stats: Optional[DeduplicationStats], topic_matches: Dict[str, int],
-                      errors: List[str]) -> PipelineResult:
-        """Create pipeline result object."""
+                      errors: List[str], ai_requests: int = 0, ai_successes: int = 0,
+                      ai_failures: int = 0, ai_provider_breakdown: Dict = None,
+                      ai_processing_time: float = 0.0, articles_processed_by_ai: int = 0,
+                      articles_ai_relevant: int = 0) -> PipelineResult:
+        """Create pipeline result object with comprehensive metrics."""
         return PipelineResult(
             channel_id=chat_id,
             total_feeds_processed=total_feeds,
@@ -584,7 +625,14 @@ class ProcessingPipeline:
             feed_fetch_time_seconds=fetch_time,
             deduplication_stats=dedup_stats,
             topic_matches=topic_matches,
-            errors=errors
+            errors=errors,
+            ai_requests_sent=ai_requests,
+            ai_requests_successful=ai_successes,
+            ai_requests_failed=ai_failures,
+            ai_provider_breakdown=ai_provider_breakdown or {},
+            ai_processing_time_seconds=ai_processing_time,
+            articles_processed_by_ai=articles_processed_by_ai,
+            articles_ai_relevant=articles_ai_relevant
         )
     
     async def process_multiple_channels(self, chat_ids: List[str]) -> List[PipelineResult]:

@@ -226,14 +226,14 @@ class DailyScheduler:
     
     async def _process_channel(self, channel, dry_run: bool) -> Dict:
         """
-        Process content for a single channel.
+        Process content for a single channel with comprehensive metrics tracking.
         
         Args:
             channel: Channel configuration object
             dry_run: If True, simulate processing
             
         Returns:
-            Dictionary with processing results for this channel
+            Dictionary with processing results and detailed metrics for this channel
         """
         channel_start = time.time()
         self.logger.info(f"Processing channel {channel['chat_id']}", extra={
@@ -262,12 +262,15 @@ class DailyScheduler:
                     'error': '; '.join(processing_result.errors) if processing_result.errors else 'Processing failed',
                     'articles_processed': 0,
                     'messages_sent': 0,
-                    'processing_time': time.time() - channel_start
+                    'processing_time': time.time() - channel_start,
+                    'pipeline_result': processing_result  # Include for metrics aggregation
                 }
             
             # Step 2: Send digest to channel (if not dry run)
             messages_sent = 0
-            if not dry_run and processing_result.successful_feed_fetches > 0:
+            delivery_start = time.time()
+            
+            if not dry_run and processing_result.articles_ready_for_ai > 0:
                 try:
                     digest_result = await self.message_sender.deliver_daily_digest(
                         channel['chat_id'],
@@ -275,17 +278,26 @@ class DailyScheduler:
                     )
                     messages_sent = digest_result.messages_sent if digest_result.success else 0
                     
+                    # Update delivery metrics in processing_result
+                    processing_result.articles_sent_to_telegram = digest_result.articles_delivered if digest_result.success else 0
+                    processing_result.telegram_messages_sent = messages_sent
+                    processing_result.telegram_delivery_failures = 1 if not digest_result.success else 0
+                    processing_result.delivery_time_seconds = time.time() - delivery_start
+                    
                     if not digest_result.success:
-                        self.logger.warning(f"Digest sending failed for {channel['chat_id']}: {digest_result.error_message}")
+                        self.logger.warning(f"Digest sending failed for {channel['chat_id']}: {digest_result.error}")
                         
                 except Exception as e:
                     self.logger.error(f"Digest sending error for {channel['chat_id']}: {e}")
+                    processing_result.telegram_delivery_failures = 1
+                    processing_result.delivery_time_seconds = time.time() - delivery_start
+            else:
+                processing_result.delivery_time_seconds = time.time() - delivery_start
             
             # Update processing statistics
-            articles_processed = processing_result.articles_ready_for_ai
+            articles_processed = processing_result.articles_processed_by_ai
             self.total_articles_processed += articles_processed
             
-            # Record processing success
             # Record processing success in database
             with self.db_manager.get_connection() as conn:
                 conn.execute("""
@@ -300,6 +312,10 @@ class DailyScheduler:
             self.logger.info(f"Channel {channel['chat_id']} processed successfully", extra={
                 'channel_id': channel['chat_id'],
                 'articles_processed': articles_processed,
+                'articles_fetched': processing_result.total_articles_fetched,
+                'articles_prefiltered': processing_result.articles_passed_prefilter,
+                'ai_requests': processing_result.ai_requests_sent,
+                'ai_successes': processing_result.ai_requests_successful,
                 'messages_sent': messages_sent,
                 'processing_time': processing_time,
                 'dry_run': dry_run
@@ -311,6 +327,7 @@ class DailyScheduler:
                 'articles_processed': articles_processed,
                 'messages_sent': messages_sent,
                 'processing_time': processing_time,
+                'pipeline_result': processing_result,  # Include full pipeline result for detailed metrics
                 'curated_articles': processing_result.articles_ready_for_ai if not dry_run else None
             }
             
@@ -320,7 +337,6 @@ class DailyScheduler:
             
             # Record processing failure
             try:
-                # Record processing failure 
                 self.logger.error(f"Processing failed for channel {channel['chat_id']}: {e}")
             except Exception as record_error:
                 self.logger.error(f"Failed to record processing failure: {record_error}")
@@ -355,8 +371,42 @@ class DailyScheduler:
             self.logger.warning(f"Post-processing cleanup warning: {e}")
     
     def _create_result_summary(self, success: bool, message: str = None, channel_results: List = None) -> Dict:
-        """Create standardized result summary."""
+        """Create comprehensive result summary with detailed pipeline metrics."""
         duration = (datetime.now() - self.start_time).total_seconds() if self.start_time else 0
+        
+        # Aggregate metrics across all channels
+        total_feeds_processed = 0
+        total_articles_fetched = 0
+        total_articles_after_dedup = 0
+        total_prefilter_passed = 0
+        total_ai_requests = 0
+        total_ai_successes = 0
+        total_ai_relevant = 0
+        total_telegram_sent = 0
+        total_telegram_messages = 0
+        ai_provider_aggregated = {}
+        
+        if channel_results:
+            for result in channel_results:
+                if 'pipeline_result' in result:
+                    pr = result['pipeline_result']
+                    total_feeds_processed += pr.total_feeds_processed
+                    total_articles_fetched += pr.total_articles_fetched
+                    total_articles_after_dedup += pr.unique_articles_after_dedup
+                    total_prefilter_passed += pr.articles_passed_prefilter
+                    total_ai_requests += pr.ai_requests_sent
+                    total_ai_successes += pr.ai_requests_successful
+                    total_ai_relevant += pr.articles_ai_relevant
+                    total_telegram_sent += pr.articles_sent_to_telegram
+                    total_telegram_messages += pr.telegram_messages_sent
+                    
+                    # Aggregate AI provider breakdown
+                    for provider, stats in pr.ai_provider_breakdown.items():
+                        if provider not in ai_provider_aggregated:
+                            ai_provider_aggregated[provider] = {'requests': 0, 'successes': 0, 'failures': 0}
+                        ai_provider_aggregated[provider]['requests'] += stats.get('requests', 0)
+                        ai_provider_aggregated[provider]['successes'] += stats.get('successes', 0)
+                        ai_provider_aggregated[provider]['failures'] += stats.get('failures', 0)
         
         summary = {
             'execution_id': self.execution_id,
@@ -366,8 +416,34 @@ class DailyScheduler:
             'channels_processed': self.channels_processed,
             'total_articles_processed': self.total_articles_processed,
             'errors_count': len(self.errors_encountered),
-            'performance_metrics': {'disabled': True},
-            'message': message
+            'message': message,
+            
+            # Enhanced Pipeline Metrics
+            'pipeline_metrics': {
+                'feeds_processed': total_feeds_processed,
+                'articles_fetched': total_articles_fetched,
+                'articles_after_dedup': total_articles_after_dedup,
+                'articles_passed_prefilter': total_prefilter_passed,
+                'prefilter_reduction_rate': ((total_articles_after_dedup - total_prefilter_passed) / total_articles_after_dedup * 100) if total_articles_after_dedup > 0 else 0.0
+            },
+            
+            # AI Processing Metrics
+            'ai_metrics': {
+                'requests_sent': total_ai_requests,
+                'requests_successful': total_ai_successes,
+                'requests_failed': total_ai_requests - total_ai_successes,
+                'success_rate': (total_ai_successes / total_ai_requests * 100) if total_ai_requests > 0 else 0.0,
+                'articles_found_relevant': total_ai_relevant,
+                'relevance_rate': (total_ai_relevant / total_ai_successes * 100) if total_ai_successes > 0 else 0.0,
+                'provider_breakdown': ai_provider_aggregated
+            },
+            
+            # Telegram Delivery Metrics
+            'delivery_metrics': {
+                'articles_sent': total_telegram_sent,
+                'messages_sent': total_telegram_messages,
+                'avg_articles_per_message': (total_telegram_sent / total_telegram_messages) if total_telegram_messages > 0 else 0.0
+            }
         }
         
         if channel_results:
@@ -379,6 +455,81 @@ class DailyScheduler:
             summary['errors'] = self.errors_encountered
             
         return summary
+
+    def format_processing_summary(self, summary: Dict) -> str:
+        """Format processing summary for console output with detailed metrics."""
+        if not summary.get('success', False):
+            return f"❌ Daily processing failed!\n📝 Error: {summary.get('message', 'Unknown error')}"
+        
+        duration_min = summary['duration_seconds'] / 60
+        pipeline = summary.get('pipeline_metrics', {})
+        ai = summary.get('ai_metrics', {})
+        delivery = summary.get('delivery_metrics', {})
+        
+        # Build formatted output
+        lines = [
+            "✅ Daily processing completed successfully!",
+            f"📊 Processed {summary['channels_processed']} channels",
+            f"⏱️ Duration: {summary['duration_seconds']:.2f} seconds ({duration_min:.1f} minutes)",
+            "",
+            "📰 Article Pipeline:",
+            f"  • Articles fetched: {pipeline.get('articles_fetched', 0)}",
+            f"  • After deduplication: {pipeline.get('articles_after_dedup', 0)}",
+            f"  • Passed prefilter: {pipeline.get('articles_passed_prefilter', 0)} ({pipeline.get('prefilter_reduction_rate', 0):.1f}% filtered out)",
+            ""
+        ]
+        
+        # AI Processing Section
+        if ai.get('requests_sent', 0) > 0:
+            lines.extend([
+                "🤖 AI Processing:",
+                f"  • AI requests sent: {ai['requests_sent']}",
+                f"  • Successful: {ai['requests_successful']} ({ai.get('success_rate', 0):.1f}%)",
+                f"  • Failed: {ai['requests_failed']}",
+                f"  • Articles found relevant: {ai.get('articles_found_relevant', 0)} ({ai.get('relevance_rate', 0):.1f}%)",
+                ""
+            ])
+            
+            # AI Provider Breakdown
+            provider_breakdown = ai.get('provider_breakdown', {})
+            if provider_breakdown:
+                lines.append("🔧 AI Provider Breakdown:")
+                for provider, stats in provider_breakdown.items():
+                    requests = stats.get('requests', 0)
+                    successes = stats.get('successes', 0)
+                    success_rate = (successes / requests * 100) if requests > 0 else 0
+                    lines.append(f"  • {provider.upper()}: {requests} requests ({success_rate:.1f}% success)")
+                lines.append("")
+        else:
+            lines.extend([
+                "🤖 AI Processing: No AI requests sent",
+                ""
+            ])
+        
+        # Telegram Delivery Section
+        if delivery.get('articles_sent', 0) > 0:
+            lines.extend([
+                "📱 Telegram Delivery:",
+                f"  • Articles sent: {delivery['articles_sent']}",
+                f"  • Messages sent: {delivery['messages_sent']}",
+                f"  • Avg articles per message: {delivery.get('avg_articles_per_message', 0):.1f}",
+                ""
+            ])
+        else:
+            lines.extend([
+                "📱 Telegram Delivery: No articles delivered",
+                ""
+            ])
+        
+        # Results Summary
+        lines.extend([
+            "📈 Results Summary:",
+            f"  • Successful channels: {summary.get('successful_channels', 0)}",
+            f"  • Failed channels: {summary.get('failed_channels', 0)}",
+            f"  • Errors encountered: {summary.get('errors_count', 0)}"
+        ])
+        
+        return "\n".join(lines)
     
     async def check_processing_status(self) -> Dict:
         """
