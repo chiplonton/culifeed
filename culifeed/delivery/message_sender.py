@@ -28,7 +28,7 @@ from ..config.settings import get_settings
 from ..utils.logging import get_logger_for_component
 from ..utils.exceptions import DeliveryError, ErrorCode
 from .digest_formatter import DigestFormatter, DigestFormat
-from .transparency_formatter import TransparencyFormatter
+
 
 @dataclass
 class DeliveryResult:
@@ -63,8 +63,7 @@ class MessageSender:
         # Use DigestFormatter for all formatting needs
         self.formatter = DigestFormatter(self.settings)
 
-        # Use TransparencyFormatter for AI processing transparency
-        self.transparency_formatter = TransparencyFormatter(self.settings)
+
 
         # Message formatting settings
         self.max_message_length = 4096  # Telegram limit
@@ -96,7 +95,7 @@ class MessageSender:
                     error="No articles ready for delivery"
                 )
 
-            # Format messages with transparency information
+            # Format messages for delivery
             formatted_messages = self._format_transparent_digest(articles_by_topic)
 
             # Send all formatted messages
@@ -275,7 +274,7 @@ class MessageSender:
         return {}
 
     def _format_transparent_digest(self, articles_by_topic: Dict[str, List[Article]]) -> List[str]:
-        """Format daily digest with transparency information.
+        """Format daily digest for delivery using DigestFormatter.
 
         Args:
             articles_by_topic: Dictionary mapping topic names to article lists
@@ -283,66 +282,8 @@ class MessageSender:
         Returns:
             List of formatted message strings
         """
-        if not articles_by_topic:
-            return []
-
-        messages = []
-        current_message_parts = []
-        current_length = 0
-
-        # Header for the digest
-        header = "📰 **CuliFeed Daily Digest**\n\n"
-        current_message_parts.append(header)
-        current_length += len(header)
-
-        # Process each topic
-        for topic_name, articles in articles_by_topic.items():
-            if not articles:
-                continue
-
-            # Format topic section with transparency
-            topic_section = self.transparency_formatter.format_topic_section(
-                topic_name, articles, max_articles=self.max_articles_per_message
-            )
-
-            # Check if we need to start a new message
-            if current_length + len(topic_section) > self.max_message_length - 200:  # Leave room for footer
-                # Add quality footer to current message
-                all_articles_in_message = []
-                for part in current_message_parts:
-                    if hasattr(part, '__iter__'):  # If it's a list of articles
-                        all_articles_in_message.extend(part)
-
-                if all_articles_in_message:
-                    footer = self.transparency_formatter.format_quality_footer(all_articles_in_message)
-                    if footer:
-                        current_message_parts.append(footer)
-
-                # Finalize current message
-                messages.append("\n".join(current_message_parts))
-
-                # Start new message
-                current_message_parts = [header]
-                current_length = len(header)
-
-            # Add topic section
-            current_message_parts.append(topic_section)
-            current_length += len(topic_section)
-
-        # Add final message if there's content
-        if len(current_message_parts) > 1:  # More than just header
-            # Get all articles for quality footer
-            all_articles = []
-            for articles in articles_by_topic.values():
-                all_articles.extend(articles)
-
-            footer = self.transparency_formatter.format_quality_footer(all_articles)
-            if footer:
-                current_message_parts.append(footer)
-
-            messages.append("\n".join(current_message_parts))
-
-        return messages
+        # Use the DigestFormatter to handle all formatting
+        return self.formatter.format_daily_digest(articles_by_topic)
 
     async def _send_message(self, chat_id: str, message: str, retries: int = 3) -> bool:
         """Send a message to a chat with retry logic.

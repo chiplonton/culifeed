@@ -21,8 +21,7 @@ from ..database.models import Article, Topic
 from ..config.settings import get_settings, AIProvider as ConfigAIProvider, ProviderPriority
 from ..utils.logging import get_logger_for_component
 from ..utils.exceptions import ErrorCode
-# Monitoring imports will be done lazily to avoid circular imports
-from ..monitoring.trust_validator import ValidationOutcome
+# Monitoring imports removed - simplified system
 
 
 @dataclass
@@ -95,12 +94,7 @@ class AIManager:
         self.fallback_strategy = FallbackStrategy.NEXT_AVAILABLE
         self.enable_keyword_fallback = self.settings.limits.fallback_to_keywords
 
-        # Initialize quality monitoring and validation (lazy import to avoid circular imports)
-        from ..monitoring.quality_monitor import QualityMonitor
-        from ..monitoring.trust_validator import TrustValidator
-
-        self.quality_monitor = QualityMonitor(self.settings)
-        self.trust_validator = TrustValidator(self.settings)
+        # Monitoring systems removed for simplification
 
         # Validate provider priority configuration
         self._validate_and_log_provider_configuration()
@@ -222,14 +216,14 @@ class AIManager:
     
     async def analyze_relevance(self, article: Article, topic: Topic,
                               fallback_strategy: FallbackStrategy = None,
-                              prefilter_score: Optional[float] = None) -> AIResult:
+) -> AIResult:
         """Analyze article relevance with two-level fallback and validation.
 
         Args:
             article: Article to analyze
             topic: Topic to match against
             fallback_strategy: Override default fallback strategy
-            prefilter_score: Pre-filter relevance score for validation
+
 
         Returns:
             AIResult with relevance analysis and validation metadata
@@ -259,64 +253,18 @@ class AIManager:
                     # Fallback to basic analyze_relevance (single model providers)
                     result = await provider.analyze_relevance(article, topic)
 
-                # Record processing attempt
-                processing_time_ms = (time.time() - processing_start_time) * 1000
-                self.quality_monitor.record_processing_attempt(
-                    article_id=article.id,
-                    provider=f"{provider_type}/{model_name}",
-                    success=result.success,
-                    processing_time_ms=processing_time_ms,
-                    ai_result=result,
-                    used_fallback=False
-                )
-
                 if result.success:
-                    # Perform cross-validation if prefilter score available
-                    if prefilter_score is not None:
-                        validation_result = self.trust_validator.validate_ai_result(
-                            result, prefilter_score, article, topic
-                        )
-
-                        # Record validation attempt
-                        self.quality_monitor.record_validation_attempt(
-                            ai_score=result.relevance_score,
-                            prefilter_score=prefilter_score,
-                            provider=f"{provider_type}/{model_name}",
-                            success=validation_result.outcome != ValidationOutcome.FAIL,
-                            reason=validation_result.reason
-                        )
-
-                        # Adjust confidence based on validation
-                        result.confidence = validation_result.adjusted_confidence
-                        result.validation_outcome = validation_result.outcome.value
-                        result.validation_reason = validation_result.reason
-
-                        # Log validation results
-                        self.logger.debug(
-                            f"Validation {validation_result.outcome.value}: "
-                            f"AI={result.relevance_score:.3f}, Prefilter={prefilter_score:.3f}, "
-                            f"Adjusted confidence={result.confidence:.3f}"
-                        )
-
-                        # Reject results that fail validation if configured to do so
-
-                        if validation_result.outcome == ValidationOutcome.FAIL:
-                            self.logger.warning(
-                                f"Rejecting AI result due to validation failure: {validation_result.reason}"
-                            )
-                            health.record_error()
-                            last_error = AIError(
-                                f"Validation failed: {validation_result.reason}",
-                                provider=f"{provider_type}/{model_name}"
-                            )
-                            continue
-
                     health.record_success()
+                    
+                    # Apply provider quality adjustments
+                    adjusted_result = self._apply_provider_quality_adjustments(result, provider_type)
+                    
                     self.logger.debug(
                         f"Relevance analysis successful: {provider_type}/{model_name} "
-                        f"score={result.relevance_score:.3f}, confidence={result.confidence:.3f}"
+                        f"raw_score={result.relevance_score:.3f}, adjusted_score={adjusted_result.relevance_score:.3f}, "
+                        f"confidence={adjusted_result.confidence:.3f}"
                     )
-                    return result
+                    return adjusted_result
                 else:
                     health.record_error()
                     last_error = AIError(
@@ -346,18 +294,10 @@ class AIManager:
             self.logger.info("All AI provider-model combinations failed, falling back to keyword matching")
             fallback_result = self._keyword_fallback_analysis(article, topic)
 
-            # Record fallback usage for quality monitoring
-            processing_time_ms = (time.time() - processing_start_time) * 1000
-            self.quality_monitor.record_processing_attempt(
-                article_id=article.id,
-                provider="keyword_fallback",
-                success=fallback_result.success,
-                processing_time_ms=processing_time_ms,
-                ai_result=fallback_result,
-                used_fallback=True
-            )
+            # Apply quality adjustment for keyword fallback too
+            adjusted_fallback = self._apply_provider_quality_adjustments(fallback_result, "keyword_fallback")
 
-            return fallback_result
+            return adjusted_fallback
         
         # No fallback or fallback disabled
         error_msg = f"All AI provider-model combinations failed. Last error: {last_error.user_message if last_error else 'Unknown'}"
@@ -369,6 +309,50 @@ class AIManager:
             confidence=0.0,
             error_message=error_msg
         )
+
+    def _apply_provider_quality_adjustments(self, result: AIResult, provider_type: Union[AIProviderType, str]) -> AIResult:
+        """Apply provider quality adjustments to AI results.
+        
+        Args:
+            result: Original AI result
+            provider_type: Provider type or string identifier
+            
+        Returns:
+            AIResult with adjusted scores based on provider quality settings
+        """
+        if not result.success:
+            return result
+            
+        # Get provider quality factor from settings
+        provider_key = provider_type.value if hasattr(provider_type, 'value') else str(provider_type)
+        quality_factor = getattr(self.settings.provider_quality, provider_key.lower(), 1.0)
+        
+        # Apply quality adjustments
+        adjusted_relevance = result.relevance_score * quality_factor
+        adjusted_confidence = result.confidence * quality_factor
+        
+        # Log quality adjustment if significant
+        if quality_factor != 1.0:
+            self.logger.debug(
+                f"Applied quality adjustment for {provider_key}: "
+                f"relevance {result.relevance_score:.3f} → {adjusted_relevance:.3f} "
+                f"(factor: {quality_factor})"
+            )
+        
+        # Create new result with adjusted scores
+        adjusted_result = AIResult(
+            success=result.success,
+            relevance_score=adjusted_relevance,
+            confidence=adjusted_confidence,
+            reasoning=result.reasoning,
+            provider=result.provider,
+            processing_time_ms=result.processing_time_ms,
+            error_message=result.error_message,
+            matched_keywords=getattr(result, 'matched_keywords', None),
+            summary=getattr(result, 'summary', None)
+        )
+        
+        return adjusted_result
     
     async def generate_summary(self, article: Article, max_sentences: int = 3) -> AIResult:
         """Generate article summary with two-level fallback (model + provider).

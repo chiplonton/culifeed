@@ -84,10 +84,7 @@ class DatabaseSchema:
                 ai_relevance_score REAL CHECK (ai_relevance_score BETWEEN 0.0 AND 1.0),
                 ai_confidence REAL CHECK (ai_confidence BETWEEN 0.0 AND 1.0),
                 ai_provider TEXT,
-                ai_reasoning TEXT,
-                validation_outcome TEXT,
-                validation_reason TEXT,
-                prefilter_score REAL CHECK (prefilter_score BETWEEN 0.0 AND 1.0)
+                ai_reasoning TEXT
             )
         """)
     
@@ -186,18 +183,7 @@ class DatabaseSchema:
         cursor = conn.execute("PRAGMA table_info(articles)")
         columns = [column[1] for column in cursor.fetchall()]
 
-        # Add validation columns if they don't exist
-        if 'validation_outcome' not in columns:
-            conn.execute("ALTER TABLE articles ADD COLUMN validation_outcome TEXT")
-            logger.info("Added validation_outcome column to articles table")
 
-        if 'validation_reason' not in columns:
-            conn.execute("ALTER TABLE articles ADD COLUMN validation_reason TEXT")
-            logger.info("Added validation_reason column to articles table")
-
-        if 'prefilter_score' not in columns:
-            conn.execute("ALTER TABLE articles ADD COLUMN prefilter_score REAL CHECK (prefilter_score BETWEEN 0.0 AND 1.0)")
-            logger.info("Added prefilter_score column to articles table")
 
     def drop_tables(self) -> None:
         """Drop all tables (for testing/reset purposes)."""

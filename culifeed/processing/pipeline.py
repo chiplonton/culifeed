@@ -221,7 +221,7 @@ class ProcessingPipeline:
             # Step 9: AI Analysis and Processing
             # Only pass filter results that correspond to articles that passed pre-filter
             passed_filter_results = [r for r in filter_results if r.passed_filter]
-            ai_processed_articles = await self._ai_analysis_and_processing(
+            ai_processed_articles, ai_metrics = await self._ai_analysis_and_processing(
                 passed_articles, passed_filter_results, topics, max_articles_per_topic
             )
             
@@ -231,7 +231,13 @@ class ProcessingPipeline:
             result = self._create_result(
                 chat_id, len(feeds), successful_fetches, len(all_articles),
                 len(unique_articles), len(passed_articles), len(ai_processed_articles),
-                total_processing_time, fetch_duration, dedup_stats, topic_matches, errors
+                total_processing_time, fetch_duration, dedup_stats, topic_matches, errors,
+                ai_requests=ai_metrics["ai_requests_sent"],
+                ai_successes=ai_metrics["ai_requests_successful"],
+                ai_failures=ai_metrics["ai_requests_failed"],
+                ai_provider_breakdown=ai_metrics["ai_provider_breakdown"],
+                articles_processed_by_ai=len(ai_processed_articles),
+                articles_ai_relevant=ai_metrics["articles_ai_relevant"]  # NEW: Pass the count
             )
             
             self.logger.info(
@@ -308,26 +314,33 @@ class ProcessingPipeline:
             return topics
     
     async def _ai_analysis_and_processing(self, articles: List[Article], filter_results: List[FilterResult],
-                                       topics: List[Topic], max_per_topic: int) -> List[Article]:
+                                       topics: List[Topic], max_per_topic: int) -> tuple[List[Article], dict]:
         """Perform AI analysis and processing on filtered articles.
-        
+
         Args:
             articles: List of articles to analyze
             filter_results: Pre-filtering results for articles
             topics: Topics for relevance analysis
             max_per_topic: Maximum articles per topic
-            
+
         Returns:
-            List of articles that passed AI analysis
+            Tuple of (processed articles, AI metrics dict including articles_ai_relevant count)
         """
         if not articles or not topics:
             self.logger.info("No articles or topics for AI analysis")
-            return []
+            return [], {"ai_requests_sent": 0, "ai_requests_successful": 0, "ai_requests_failed": 0, "ai_provider_breakdown": {}, "articles_ai_relevant": 0}
         
         self.logger.info(f"Starting AI analysis for {len(articles)} articles across {len(topics)} topics")
         
         ai_processed_articles = []
         processing_results = []  # Track article-topic relationships
+
+        # Initialize AI metrics tracking
+        ai_requests_sent = 0
+        ai_requests_successful = 0
+        ai_requests_failed = 0
+        ai_provider_breakdown = {}  # Format: {provider: {'requests': X, 'successes': Y, 'failures': Z}}
+        articles_ai_relevant = 0  # NEW: Count articles that meet AI relevance threshold
         
         # Group articles by topic for processing
         for topic in topics:
@@ -351,20 +364,32 @@ class ProcessingPipeline:
             
             for article, _ in selected:
                 try:
-                    # Get pre-filter score for this article-topic combination
-                    prefilter_score = None
-                    for filter_result in filter_results:
-                        if (filter_result.article.id == article.id and
-                            topic_name in filter_result.matched_topics):
-                            prefilter_score = filter_result.relevance_scores.get(topic_name, 0.0)
-                            break
-
-                    # AI relevance analysis with cross-validation
+                    # AI relevance analysis
+                    ai_requests_sent += 1  # Count the AI request
                     ai_result = await self.ai_manager.analyze_relevance(
-                        article, topic, prefilter_score=prefilter_score
+                        article, topic
                     )
+
+                    # Track AI provider breakdown
+                    if ai_result.provider:
+                        if ai_result.provider not in ai_provider_breakdown:
+                            ai_provider_breakdown[ai_result.provider] = {'requests': 0, 'successes': 0, 'failures': 0}
+                        ai_provider_breakdown[ai_result.provider]['requests'] += 1
+
+                    # Track success/failure
+                    if ai_result.success:
+                        ai_requests_successful += 1
+                        if ai_result.provider:
+                            ai_provider_breakdown[ai_result.provider]['successes'] += 1
+                    else:
+                        ai_requests_failed += 1
+                        if ai_result.provider:
+                            ai_provider_breakdown[ai_result.provider]['failures'] += 1
                     
                     if ai_result.success and ai_result.relevance_score >= self.settings.processing.ai_relevance_threshold:
+                        # INCREMENT: Article met main AI relevance threshold
+                        articles_ai_relevant += 1
+                        
                         # Generate summary if relevance is high enough
                         if ai_result.relevance_score >= self.settings.processing.ai_summary_threshold:
                             try:
@@ -383,11 +408,6 @@ class ProcessingPipeline:
                         article.ai_provider = ai_result.provider
                         article.ai_reasoning = ai_result.reasoning
 
-                        # Store validation metadata if available
-                        if hasattr(ai_result, 'validation_outcome'):
-                            article.validation_outcome = ai_result.validation_outcome
-                            article.validation_reason = getattr(ai_result, 'validation_reason', None)
-                            article.prefilter_score = prefilter_score
                         
                         # Add to processed articles if not already added
                         if article not in ai_processed_articles:
@@ -418,25 +438,21 @@ class ProcessingPipeline:
                 except Exception as e:
                     self.logger.error(f"AI processing failed for article {article.id}: {e}")
 
-                    # Use hybrid fallback: keyword-based analysis with transparency
+                    # Use hybrid fallback: keyword-based analysis
                     try:
-                        # Create hybrid AI result using pre-filter score
-                        if prefilter_score is not None and prefilter_score >= self.settings.filtering.prefilter_minimum_threshold:
-                            # Use pre-filter score as basis for hybrid result
-                            hybrid_result = self.ai_manager._keyword_fallback_analysis(article, topic)
-
-                            if hybrid_result.success:
+                        # Use keyword fallback analysis
+                        hybrid_result = self.ai_manager._keyword_fallback_analysis(article, topic)
+                        
+                        if hybrid_result.success:
                                 # Mark as hybrid processing and adjust confidence
                                 article.ai_relevance_score = hybrid_result.relevance_score
                                 article.ai_confidence = min(hybrid_result.confidence, self.settings.filtering.fallback_confidence_cap)  # Cap from settings
                                 article.ai_provider = "keyword_backup"
                                 article.ai_reasoning = f"Hybrid fallback: {hybrid_result.reasoning}"
-                                article.validation_outcome = "fallback"
-                                article.validation_reason = "AI processing failed, using keyword backup"
-                                article.prefilter_score = prefilter_score
 
                                 # Only include if it meets a minimum threshold
                                 if hybrid_result.relevance_score >= self.settings.filtering.fallback_relevance_threshold:  # Lower threshold for fallback
+                                    # NOTE: Fallback articles don't count toward articles_ai_relevant (they didn't meet main AI threshold)
                                     if article not in ai_processed_articles:
                                         ai_processed_articles.append(article)
 
@@ -460,13 +476,9 @@ class ProcessingPipeline:
                                         f"Keyword fallback score too low for article '{article.title}': "
                                         f"{hybrid_result.relevance_score:.3f} < {self.settings.filtering.fallback_relevance_threshold}"
                                     )
-                            else:
-                                self.logger.warning(f"Keyword fallback also failed for article {article.id}")
                         else:
-                            self.logger.warning(
-                                f"No fallback possible for article {article.id}: "
-                                f"prefilter_score={prefilter_score}"
-                            )
+                            self.logger.warning(f"Keyword fallback also failed for article {article.id}")
+
                     except Exception as fallback_error:
                         self.logger.error(f"Hybrid fallback failed for article {article.id}: {fallback_error}")
                         # Article is not included - better than silent failure
@@ -484,8 +496,19 @@ class ProcessingPipeline:
             self._store_processing_results(processing_results)
         
         self.logger.info(f"AI analysis complete: {len(ai_processed_articles)} articles ready for delivery")
-        
-        return ai_processed_articles
+        self.logger.info(f"AI metrics: {ai_requests_sent} requests sent, {ai_requests_successful} successful, {ai_requests_failed} failed")
+        self.logger.info(f"Articles meeting AI relevance threshold (>= {self.settings.processing.ai_relevance_threshold}): {articles_ai_relevant}")
+
+        # Prepare AI metrics with articles_ai_relevant count
+        ai_metrics = {
+            "ai_requests_sent": ai_requests_sent,
+            "ai_requests_successful": ai_requests_successful,
+            "ai_requests_failed": ai_requests_failed,
+            "ai_provider_breakdown": ai_provider_breakdown,
+            "articles_ai_relevant": articles_ai_relevant  # NEW: Include the count
+        }
+
+        return ai_processed_articles, ai_metrics
     
     def _store_articles_for_processing(self, articles: List[Article]) -> None:
         """Store articles in database with AI analysis results.

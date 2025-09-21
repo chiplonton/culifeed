@@ -85,68 +85,19 @@ ai:
   # balanced: gemini → groq → openai → huggingface → openrouter (mix of cost/quality)
   # custom: ["openai", "gemini"] (user-defined order, only specified providers)
 
-# Trust Validation Settings (New - Phase 1 configurable thresholds)
-trust_validation:
-  # Core score difference thresholds
-  max_score_difference: 0.7             # Max acceptable AI vs prefilter score difference (relaxed for Phase 1)
-  warning_score_difference: 0.4         # Score difference threshold for warnings
-  min_prefilter_for_high_ai: 0.05       # Min prefilter score for high AI scores
-  max_ai_for_low_prefilter: 0.4         # Max AI score for very low prefilter scores
-  
-  # Confidence adjustment factors  
-  confidence_penalty_factor: 0.85       # Confidence reduction for warnings (85%)
-  confidence_failure_factor: 0.5        # Confidence reduction for failures (50%)
-  
-  # Critical mismatch detection thresholds
-  critical_high_ai_threshold: 0.8       # AI score threshold for critical mismatch detection
-  critical_low_prefilter_threshold: 0.1 # Prefilter threshold for critical mismatch detection
-  critical_low_ai_threshold: 0.2        # Low AI score threshold for critical mismatch detection
-  critical_high_prefilter_threshold: 0.7 # High prefilter threshold for critical mismatch detection
-  
-  # Suspicious score detection thresholds
-  suspicious_high_ai_threshold: 0.7     # AI score threshold for suspicious high score detection
-  suspicious_high_prefilter_threshold: 0.6 # Prefilter threshold for suspicious mismatch detection
-  suspicious_low_ai_threshold: 0.3      # AI score threshold for suspicious low score detection
-  
-  # Batch consistency validation thresholds
-  min_pass_rate: 0.7                    # Minimum validation pass rate (70%)
-  max_fail_rate: 0.1                    # Maximum validation fail rate (10%)
-  provider_fail_rate_threshold: 0.2     # Provider-specific fail rate threshold (20%)
+# Trust validation settings removed for simplification
 
 # Provider Quality Settings (New - AI provider confidence adjustment factors)
 provider_quality:
   groq: 1.0                             # Premium quality provider (no adjustment)
   gemini: 1.0                           # Premium quality provider (no adjustment)
   openai: 1.0                           # Premium quality provider (no adjustment)
-  huggingface: 0.85                     # Good but summarization-focused (15% reduction)
+  huggingface: 0.70                     # Summarization models poor at relevance classification (30% reduction)
   openrouter: 0.70                      # Free tier limitations (30% reduction)
   keyword_backup: 0.45                  # Basic keyword matching (55% reduction)
   keyword_fallback: 0.45                # Basic keyword matching (55% reduction)
 
-# Quality Monitoring Settings (New - Alert thresholds for quality monitoring)
-quality_monitoring:
-  # Validation success rate monitoring
-  validation_success_rate_min: 0.8      # Minimum validation success rate (80%)
-  validation_success_rate_alert: 0.7    # Alert threshold for validation success rate (70%)
-  
-  # Processing performance monitoring  
-  processing_time_max_seconds: 300      # Maximum processing time in seconds (5 minutes)
-  processing_time_alert_seconds: 240    # Alert threshold for processing time (4 minutes)
-  
-  # Article quality monitoring
-  article_quality_min: 0.6              # Minimum article quality score (60%)
-  article_quality_alert: 0.5            # Alert threshold for article quality (50%)
-  
-  # Provider performance monitoring
-  provider_success_rate_min: 0.9        # Minimum provider success rate (90%)
-  provider_success_rate_alert: 0.8      # Alert threshold for provider success rate (80%)
-  
-  # API usage monitoring
-  api_usage_alert_threshold: 0.85       # Alert when API usage exceeds 85%
-  daily_api_calls_alert_threshold: 900  # Alert when daily API calls exceed 900
-  
-  # Error rate monitoring  
-  error_rate_max: 0.05                  # Maximum acceptable error rate (5%)
+# Quality monitoring settings removed for simplification
 
 # Filtering Settings (New - Pre-filter and processing threshold configuration)
 filtering:
@@ -160,7 +111,7 @@ filtering:
   keyword_match_bonus: 0.2              # Bonus multiplier for multiple keyword matches
   
   # Processing thresholds for hybrid fallback
-  prefilter_minimum_threshold: 0.1      # Minimum prefilter score required for hybrid fallback processing
+
   fallback_relevance_threshold: 0.3     # Minimum relevance score for keyword fallback processing
   fallback_confidence_cap: 0.6          # Maximum confidence score cap for hybrid fallback results
   

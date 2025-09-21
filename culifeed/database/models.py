@@ -63,10 +63,7 @@ class Article(BaseModel):
     ai_provider: Optional[str] = Field(default=None, description="AI provider used for analysis")
     ai_reasoning: Optional[str] = Field(default=None, description="AI reasoning for relevance score")
 
-    # Quality and Validation Fields
-    validation_outcome: Optional[str] = Field(default=None, description="Validation outcome (pass/warning/fail/fallback)")
-    validation_reason: Optional[str] = Field(default=None, description="Reason for validation outcome")
-    prefilter_score: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Pre-filter relevance score")
+
 
     def __init__(self, **data):
         """Initialize article with auto-generated content hash."""

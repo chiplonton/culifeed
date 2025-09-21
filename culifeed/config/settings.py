@@ -65,49 +65,7 @@ class ProcessingSettings(BaseModel):
             raise ValueError("daily_run_hour must be between 0 and 23")
         return v
 
-class TrustValidationSettings(BaseModel):
-    """Trust validation and cross-validation settings."""
-    # Core score difference thresholds
-    max_score_difference: float = Field(default=0.7, ge=0.0, le=1.0, 
-                                       description="Max acceptable AI vs prefilter score difference (relaxed for Phase 1)")
-    warning_score_difference: float = Field(default=0.4, ge=0.0, le=1.0,
-                                           description="Score difference threshold for warnings")
-    min_prefilter_for_high_ai: float = Field(default=0.05, ge=0.0, le=1.0,
-                                            description="Min prefilter score for high AI scores")
-    max_ai_for_low_prefilter: float = Field(default=0.4, ge=0.0, le=1.0,
-                                           description="Max AI score for very low prefilter scores")
-    
-    # Confidence adjustment factors
-    confidence_penalty_factor: float = Field(default=0.85, ge=0.0, le=1.0,
-                                            description="Confidence reduction for warnings")
-    confidence_failure_factor: float = Field(default=0.5, ge=0.0, le=1.0,
-                                            description="Confidence reduction for failures")
-    
-    # Critical mismatch detection thresholds
-    critical_high_ai_threshold: float = Field(default=0.8, ge=0.0, le=1.0,
-                                             description="AI score threshold for critical mismatch detection")
-    critical_low_prefilter_threshold: float = Field(default=0.1, ge=0.0, le=1.0,
-                                                   description="Prefilter threshold for critical mismatch detection")
-    critical_low_ai_threshold: float = Field(default=0.2, ge=0.0, le=1.0,
-                                            description="Low AI score threshold for critical mismatch detection")  
-    critical_high_prefilter_threshold: float = Field(default=0.7, ge=0.0, le=1.0,
-                                                    description="High prefilter threshold for critical mismatch detection")
-    
-    # Suspicious score detection thresholds
-    suspicious_high_ai_threshold: float = Field(default=0.7, ge=0.0, le=1.0,
-                                               description="AI score threshold for suspicious high score detection")
-    suspicious_high_prefilter_threshold: float = Field(default=0.6, ge=0.0, le=1.0,
-                                                      description="Prefilter threshold for suspicious mismatch detection")
-    suspicious_low_ai_threshold: float = Field(default=0.3, ge=0.0, le=1.0,
-                                             description="AI score threshold for suspicious low score detection")
-    
-    # Batch consistency validation thresholds
-    min_pass_rate: float = Field(default=0.7, ge=0.0, le=1.0, 
-                                description="Minimum validation pass rate (70%)")
-    max_fail_rate: float = Field(default=0.1, ge=0.0, le=1.0, 
-                               description="Maximum validation fail rate (10%)")
-    provider_fail_rate_threshold: float = Field(default=0.2, ge=0.0, le=1.0,
-                                               description="Provider-specific fail rate threshold")
+# Trust validation settings removed for simplification
 
 
 class ProviderQualitySettings(BaseModel):
@@ -121,31 +79,7 @@ class ProviderQualitySettings(BaseModel):
     keyword_fallback: float = Field(default=0.45, ge=0.0, le=1.0, description="Basic keyword matching")
 
 
-class QualityMonitoringSettings(BaseModel):
-    """Quality monitoring alert thresholds for system health tracking."""
-    # Core alert thresholds
-    validation_success_rate_min: float = Field(default=0.8, ge=0.0, le=1.0,
-                                              description="Minimum validation success rate (80%)")
-    score_difference_max: float = Field(default=0.4, ge=0.0, le=1.0,
-                                       description="Maximum acceptable score difference (40%)")
-    silent_failure_rate_max: float = Field(default=0.05, ge=0.0, le=1.0,
-                                          description="Maximum silent failure rate (5%)")
-    provider_consistency_min: float = Field(default=0.7, ge=0.0, le=1.0,
-                                           description="Minimum provider consistency (70%)")
-    overall_quality_min: float = Field(default=0.75, ge=0.0, le=1.0,
-                                      description="Minimum overall quality score (75%)")
-    
-    # Additional monitoring thresholds
-    high_validation_threshold: float = Field(default=0.9, ge=0.0, le=1.0,
-                                           description="High validation success threshold for alerts")
-    low_silent_failure_threshold: float = Field(default=0.02, ge=0.0, le=1.0,
-                                               description="Low silent failure threshold for warnings")
-    high_fallback_rate_threshold: float = Field(default=0.3, ge=0.0, le=1.0,
-                                               description="High keyword fallback rate threshold")
-    
-    # Quality score calculation factors
-    keyword_fallback_penalty: float = Field(default=0.5, ge=0.0, le=1.0,
-                                           description="Quality penalty factor for keyword fallback usage")
+# Quality monitoring settings removed for simplification
 
 
 class FilteringSettings(BaseModel):
@@ -189,12 +123,7 @@ class FilteringSettings(BaseModel):
     )
     
     # Processing thresholds
-    prefilter_minimum_threshold: float = Field(
-        default=0.1, 
-        ge=0.0, 
-        le=1.0, 
-        description="Minimum prefilter score required for hybrid fallback processing"
-    )
+
     
     fallback_relevance_threshold: float = Field(
         default=0.3, 
@@ -503,9 +432,7 @@ class CuliFeedSettings(BaseSettings):
     ai: AISettings = Field(default_factory=AISettings)
     
     # Advanced configuration sections
-    trust_validation: TrustValidationSettings = Field(default_factory=TrustValidationSettings)
     provider_quality: ProviderQualitySettings = Field(default_factory=ProviderQualitySettings)
-    quality_monitoring: QualityMonitoringSettings = Field(default_factory=QualityMonitoringSettings)
     filtering: FilteringSettings = Field(default_factory=FilteringSettings)
     delivery_quality: DeliveryQualitySettings = Field(default_factory=DeliveryQualitySettings)
     
