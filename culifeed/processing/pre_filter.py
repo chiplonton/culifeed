@@ -46,14 +46,28 @@ class FilterResult:
 class PreFilterEngine:
     """Keyword-based pre-filtering to reduce AI processing costs."""
     
-    def __init__(self, min_relevance_threshold: float = 0.1):
+    def __init__(self, settings: Optional['CuliFeedSettings'] = None):
         """Initialize pre-filter engine.
         
         Args:
-            min_relevance_threshold: Minimum relevance score to pass filter
+            settings: CuliFeed settings with configurable thresholds
         """
-        self.min_relevance_threshold = min_relevance_threshold
+        # Import here to avoid circular imports
+        if settings is None:
+            from ..config.settings import get_settings
+            settings = get_settings()
+        
+        self.settings = settings
+        self.min_relevance_threshold = settings.filtering.min_relevance_threshold
         self.logger = get_logger_for_component("pre_filter")
+        
+        # Configure filtering thresholds from settings
+        self.thresholds = {
+            'exact_phrase_weight': settings.filtering.exact_phrase_weight,
+            'partial_word_weight': settings.filtering.partial_word_weight,
+            'single_word_tf_cap': settings.filtering.single_word_tf_cap,
+            'keyword_match_bonus': settings.filtering.keyword_match_bonus,
+        }
         
         # Compile common stop words for better keyword matching
         self.stop_words = {
@@ -63,6 +77,10 @@ class PreFilterEngine:
             'have', 'had', 'what', 'said', 'each', 'which', 'she', 'do', 'how',
             'their', 'if', 'up', 'out', 'many', 'then', 'them', 'these', 'so'
         }
+        
+        self.logger.info("Pre-filter engine initialized with configurable thresholds", 
+                        extra={'min_relevance_threshold': self.min_relevance_threshold, 
+                               'thresholds': self.thresholds})
     
     def _extract_text_features(self, article: Article) -> Dict[str, any]:
         """Extract text features from article for analysis.
@@ -131,7 +149,7 @@ class PreFilterEngine:
             if keyword in clean_text:
                 # Count phrase occurrences
                 phrase_count = clean_text.count(keyword)
-                phrase_score = min(phrase_count * 0.8, 1.0)  # Cap at 1.0
+                phrase_score = min(phrase_count * self.thresholds['exact_phrase_weight'], 1.0)  # Cap at 1.0
                 keyword_score = max(keyword_score, phrase_score)
                 matched_keywords += 1
             
@@ -143,7 +161,7 @@ class PreFilterEngine:
                 if word_matches > 0:
                     # Partial match score based on word coverage
                     word_coverage = word_matches / len(keyword_words)
-                    word_score = word_coverage * 0.4  # Lower weight than exact phrase
+                    word_score = word_coverage * self.thresholds['partial_word_weight']  # Lower weight than exact phrase
                     keyword_score = max(keyword_score, word_score)
                     if word_matches == len(keyword_words):
                         matched_keywords += 1
@@ -152,7 +170,7 @@ class PreFilterEngine:
                 # Single word keyword: use TF score
                 word = keyword_words[0]
                 if word in tf_scores:
-                    word_score = min(tf_scores[word] * 10, 0.6)  # Scale TF and cap
+                    word_score = min(tf_scores[word] * 10, self.thresholds['single_word_tf_cap'])  # Scale TF and cap
                     keyword_score = max(keyword_score, word_score)
                     matched_keywords += 1
             
@@ -163,7 +181,7 @@ class PreFilterEngine:
         
         # Normalize by number of keywords and apply bonus for multiple matches
         base_score = total_score / len(keywords)
-        match_bonus = min(matched_keywords / len(keywords), 1.0) * 0.2
+        match_bonus = min(matched_keywords / len(keywords), 1.0) * self.thresholds['keyword_match_bonus']
         
         final_score = min(base_score + match_bonus, 1.0)
         return final_score

@@ -63,6 +63,11 @@ class Article(BaseModel):
     ai_provider: Optional[str] = Field(default=None, description="AI provider used for analysis")
     ai_reasoning: Optional[str] = Field(default=None, description="AI reasoning for relevance score")
 
+    # Quality and Validation Fields
+    validation_outcome: Optional[str] = Field(default=None, description="Validation outcome (pass/warning/fail/fallback)")
+    validation_reason: Optional[str] = Field(default=None, description="Reason for validation outcome")
+    prefilter_score: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Pre-filter relevance score")
+
     def __init__(self, **data):
         """Initialize article with auto-generated content hash."""
         if not data.get('content_hash'):
@@ -98,7 +103,7 @@ class Topic(BaseModel):
     name: str = Field(..., min_length=1, max_length=200, description="Topic display name")
     keywords: List[str] = Field(..., min_length=1, description="Matching keywords")
     exclude_keywords: List[str] = Field(default_factory=list, description="Exclusion keywords")
-    confidence_threshold: float = Field(default=0.8, ge=0.0, le=1.0, description="AI confidence threshold")
+    confidence_threshold: float = Field(default=0.6, ge=0.0, le=1.0, description="AI confidence threshold (lowered for Phase 1)")
     created_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_match_at: Optional[datetime] = Field(default=None, description="Last successful match")
     active: bool = Field(default=True, description="Whether topic is active")

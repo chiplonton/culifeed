@@ -69,14 +69,14 @@ class ProcessingPipeline:
         self.settings = get_settings()
         self.logger = get_logger_for_component("pipeline")
         
-        # Initialize components
+        # Initialize components with settings
         self.feed_fetcher = FeedFetcher(
             max_concurrent=self.settings.processing.parallel_feeds,
             timeout=self.settings.limits.request_timeout
         )
         self.feed_manager = FeedManager(db_connection)
-        self.article_processor = ArticleProcessor(db_connection)
-        self.pre_filter = PreFilterEngine()
+        self.article_processor = ArticleProcessor(db_connection, settings=self.settings)  # Pass settings
+        self.pre_filter = PreFilterEngine(self.settings)  # Pass settings for configurable thresholds
         
         # AI Integration - Initialize AI Manager
         self.ai_manager = AIManager()
@@ -313,8 +313,18 @@ class ProcessingPipeline:
             
             for article, _ in selected:
                 try:
-                    # AI relevance analysis
-                    ai_result = await self.ai_manager.analyze_relevance(article, topic)
+                    # Get pre-filter score for this article-topic combination
+                    prefilter_score = None
+                    for filter_result in filter_results:
+                        if (filter_result.article.id == article.id and
+                            topic_name in filter_result.matched_topics):
+                            prefilter_score = filter_result.relevance_scores.get(topic_name, 0.0)
+                            break
+
+                    # AI relevance analysis with cross-validation
+                    ai_result = await self.ai_manager.analyze_relevance(
+                        article, topic, prefilter_score=prefilter_score
+                    )
                     
                     if ai_result.success and ai_result.relevance_score >= self.settings.processing.ai_relevance_threshold:
                         # Generate summary if relevance is high enough
@@ -334,6 +344,12 @@ class ProcessingPipeline:
                         article.ai_confidence = ai_result.confidence
                         article.ai_provider = ai_result.provider
                         article.ai_reasoning = ai_result.reasoning
+
+                        # Store validation metadata if available
+                        if hasattr(ai_result, 'validation_outcome'):
+                            article.validation_outcome = ai_result.validation_outcome
+                            article.validation_reason = getattr(ai_result, 'validation_reason', None)
+                            article.prefilter_score = prefilter_score
                         
                         # Add to processed articles if not already added
                         if article not in ai_processed_articles:
@@ -363,9 +379,59 @@ class ProcessingPipeline:
                         
                 except Exception as e:
                     self.logger.error(f"AI processing failed for article {article.id}: {e}")
-                    # Include article without AI analysis if AI fails
-                    if article not in ai_processed_articles:
-                        ai_processed_articles.append(article)
+
+                    # Use hybrid fallback: keyword-based analysis with transparency
+                    try:
+                        # Create hybrid AI result using pre-filter score
+                        if prefilter_score is not None and prefilter_score >= self.settings.filtering.prefilter_minimum_threshold:
+                            # Use pre-filter score as basis for hybrid result
+                            hybrid_result = self.ai_manager._keyword_fallback_analysis(article, topic)
+
+                            if hybrid_result.success:
+                                # Mark as hybrid processing and adjust confidence
+                                article.ai_relevance_score = hybrid_result.relevance_score
+                                article.ai_confidence = min(hybrid_result.confidence, self.settings.filtering.fallback_confidence_cap)  # Cap from settings
+                                article.ai_provider = "keyword_backup"
+                                article.ai_reasoning = f"Hybrid fallback: {hybrid_result.reasoning}"
+                                article.validation_outcome = "fallback"
+                                article.validation_reason = "AI processing failed, using keyword backup"
+                                article.prefilter_score = prefilter_score
+
+                                # Only include if it meets a minimum threshold
+                                if hybrid_result.relevance_score >= self.settings.filtering.fallback_relevance_threshold:  # Lower threshold for fallback
+                                    if article not in ai_processed_articles:
+                                        ai_processed_articles.append(article)
+
+                                    # Record fallback processing result
+                                    processing_results.append({
+                                        'article_id': article.id,
+                                        'chat_id': topic.chat_id,
+                                        'topic_name': topic_name,
+                                        'ai_relevance_score': hybrid_result.relevance_score,
+                                        'confidence_score': article.ai_confidence,
+                                        'summary': None  # No summary for fallback
+                                    })
+
+                                    self.logger.info(
+                                        f"Used keyword fallback for article '{article.title}': "
+                                        f"score={hybrid_result.relevance_score:.3f}, "
+                                        f"confidence={article.ai_confidence:.3f}"
+                                    )
+                                else:
+                                    self.logger.debug(
+                                        f"Keyword fallback score too low for article '{article.title}': "
+                                        f"{hybrid_result.relevance_score:.3f} < {self.settings.filtering.fallback_relevance_threshold}"
+                                    )
+                            else:
+                                self.logger.warning(f"Keyword fallback also failed for article {article.id}")
+                        else:
+                            self.logger.warning(
+                                f"No fallback possible for article {article.id}: "
+                                f"prefilter_score={prefilter_score}"
+                            )
+                    except Exception as fallback_error:
+                        self.logger.error(f"Hybrid fallback failed for article {article.id}: {fallback_error}")
+                        # Article is not included - better than silent failure
             
             self.logger.info(
                 f"AI processed {len([a for a, _ in selected if any(proc.id == a.id for proc in ai_processed_articles)])} "

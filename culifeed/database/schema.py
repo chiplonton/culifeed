@@ -41,13 +41,16 @@ class DatabaseSchema:
             # Create tables in dependency order
             self._create_channels_table(conn)
             self._create_articles_table(conn)
-            self._create_topics_table(conn)  
+            self._create_topics_table(conn)
             self._create_feeds_table(conn)
             self._create_processing_results_table(conn)
-            
+
+            # Run migrations for existing databases
+            self._run_migrations(conn)
+
             # Create indexes for performance
             self._create_indexes(conn)
-            
+
             conn.commit()
             logger.info("Database schema created successfully")
     
@@ -81,7 +84,10 @@ class DatabaseSchema:
                 ai_relevance_score REAL CHECK (ai_relevance_score BETWEEN 0.0 AND 1.0),
                 ai_confidence REAL CHECK (ai_confidence BETWEEN 0.0 AND 1.0),
                 ai_provider TEXT,
-                ai_reasoning TEXT
+                ai_reasoning TEXT,
+                validation_outcome TEXT,
+                validation_reason TEXT,
+                prefilter_score REAL CHECK (prefilter_score BETWEEN 0.0 AND 1.0)
             )
         """)
     
@@ -94,7 +100,7 @@ class DatabaseSchema:
                 name TEXT NOT NULL,
                 keywords TEXT NOT NULL,  -- JSON array of keywords
                 exclude_keywords TEXT DEFAULT '[]',  -- JSON array of exclusion keywords
-                confidence_threshold REAL DEFAULT 0.8 CHECK (confidence_threshold BETWEEN 0.0 AND 1.0),
+                confidence_threshold REAL DEFAULT 0.6 CHECK (confidence_threshold BETWEEN 0.0 AND 1.0),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_match_at TIMESTAMP,
                 active BOOLEAN DEFAULT TRUE,
@@ -173,7 +179,26 @@ class DatabaseSchema:
         
         for index_sql in indexes:
             conn.execute(index_sql)
-    
+
+    def _run_migrations(self, conn: sqlite3.Connection) -> None:
+        """Run database migrations for existing databases."""
+        # Check if validation columns exist and add them if not
+        cursor = conn.execute("PRAGMA table_info(articles)")
+        columns = [column[1] for column in cursor.fetchall()]
+
+        # Add validation columns if they don't exist
+        if 'validation_outcome' not in columns:
+            conn.execute("ALTER TABLE articles ADD COLUMN validation_outcome TEXT")
+            logger.info("Added validation_outcome column to articles table")
+
+        if 'validation_reason' not in columns:
+            conn.execute("ALTER TABLE articles ADD COLUMN validation_reason TEXT")
+            logger.info("Added validation_reason column to articles table")
+
+        if 'prefilter_score' not in columns:
+            conn.execute("ALTER TABLE articles ADD COLUMN prefilter_score REAL CHECK (prefilter_score BETWEEN 0.0 AND 1.0)")
+            logger.info("Added prefilter_score column to articles table")
+
     def drop_tables(self) -> None:
         """Drop all tables (for testing/reset purposes)."""
         with sqlite3.connect(self.db_path) as conn:

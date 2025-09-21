@@ -28,6 +28,7 @@ from ..config.settings import get_settings
 from ..utils.logging import get_logger_for_component
 from ..utils.exceptions import DeliveryError, ErrorCode
 from .digest_formatter import DigestFormatter, DigestFormat
+from .transparency_formatter import TransparencyFormatter
 
 @dataclass
 class DeliveryResult:
@@ -60,7 +61,10 @@ class MessageSender:
         self.logger = get_logger_for_component('message_sender')
 
         # Use DigestFormatter for all formatting needs
-        self.formatter = DigestFormatter()
+        self.formatter = DigestFormatter(self.settings)
+
+        # Use TransparencyFormatter for AI processing transparency
+        self.transparency_formatter = TransparencyFormatter(self.settings)
 
         # Message formatting settings
         self.max_message_length = 4096  # Telegram limit
@@ -92,11 +96,8 @@ class MessageSender:
                     error="No articles ready for delivery"
                 )
 
-            # Format messages using DigestFormatter
-            formatted_messages = self.formatter.format_daily_digest(
-                articles_by_topic,
-                DigestFormat.DETAILED
-            )
+            # Format messages with transparency information
+            formatted_messages = self._format_transparent_digest(articles_by_topic)
 
             # Send all formatted messages
             messages_sent = 0
@@ -108,7 +109,7 @@ class MessageSender:
                     messages_sent += 1
 
                 # Small delay between messages to avoid rate limiting
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(self.settings.delivery_quality.message_delay_seconds)
 
             # Update delivery status in database
             await self._mark_articles_delivered(chat_id, articles_by_topic)
@@ -215,8 +216,10 @@ class MessageSender:
                     SELECT a.*, pr.topic_name, pr.ai_relevance_score, pr.confidence_score
                     FROM processing_results pr
                     JOIN articles a ON pr.article_id = a.id
+                    JOIN topics t ON pr.chat_id = t.chat_id AND pr.topic_name = t.name
                     WHERE pr.chat_id = ? 
                     AND pr.delivered = 0
+                    AND pr.confidence_score >= t.confidence_threshold
                     AND datetime(pr.processed_at) >= datetime('now', '-1 days')
                     ORDER BY pr.topic_name, pr.ai_relevance_score DESC, a.published_at DESC
                 """, (chat_id,)).fetchall()
@@ -270,6 +273,76 @@ class MessageSender:
         # Return empty results instead of all articles to all topics
         # This prevents the original bug where unrelated articles get delivered
         return {}
+
+    def _format_transparent_digest(self, articles_by_topic: Dict[str, List[Article]]) -> List[str]:
+        """Format daily digest with transparency information.
+
+        Args:
+            articles_by_topic: Dictionary mapping topic names to article lists
+
+        Returns:
+            List of formatted message strings
+        """
+        if not articles_by_topic:
+            return []
+
+        messages = []
+        current_message_parts = []
+        current_length = 0
+
+        # Header for the digest
+        header = "📰 **CuliFeed Daily Digest**\n\n"
+        current_message_parts.append(header)
+        current_length += len(header)
+
+        # Process each topic
+        for topic_name, articles in articles_by_topic.items():
+            if not articles:
+                continue
+
+            # Format topic section with transparency
+            topic_section = self.transparency_formatter.format_topic_section(
+                topic_name, articles, max_articles=self.max_articles_per_message
+            )
+
+            # Check if we need to start a new message
+            if current_length + len(topic_section) > self.max_message_length - 200:  # Leave room for footer
+                # Add quality footer to current message
+                all_articles_in_message = []
+                for part in current_message_parts:
+                    if hasattr(part, '__iter__'):  # If it's a list of articles
+                        all_articles_in_message.extend(part)
+
+                if all_articles_in_message:
+                    footer = self.transparency_formatter.format_quality_footer(all_articles_in_message)
+                    if footer:
+                        current_message_parts.append(footer)
+
+                # Finalize current message
+                messages.append("\n".join(current_message_parts))
+
+                # Start new message
+                current_message_parts = [header]
+                current_length = len(header)
+
+            # Add topic section
+            current_message_parts.append(topic_section)
+            current_length += len(topic_section)
+
+        # Add final message if there's content
+        if len(current_message_parts) > 1:  # More than just header
+            # Get all articles for quality footer
+            all_articles = []
+            for articles in articles_by_topic.values():
+                all_articles.extend(articles)
+
+            footer = self.transparency_formatter.format_quality_footer(all_articles)
+            if footer:
+                current_message_parts.append(footer)
+
+            messages.append("\n".join(current_message_parts))
+
+        return messages
 
     async def _send_message(self, chat_id: str, message: str, retries: int = 3) -> bool:
         """Send a message to a chat with retry logic.

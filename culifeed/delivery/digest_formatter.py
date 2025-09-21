@@ -33,14 +33,22 @@ class DigestFormat(str, Enum):
 class DigestFormatter:
     """Formats curated content into various digest styles."""
 
-    def __init__(self, max_message_length: int = 4096):
+    def __init__(self, settings: Optional['CuliFeedSettings'] = None, max_message_length: int = 4096):
         """Initialize the digest formatter.
         
         Args:
+            settings: CuliFeed settings with configurable thresholds
             max_message_length: Maximum length for a single message
         """
         self.max_message_length = max_message_length
         self.logger = get_logger_for_component('formatter')
+        
+        # Import here to avoid circular imports
+        if settings is None:
+            from ..config.settings import get_settings
+            settings = get_settings()
+        
+        self.settings = settings
         
         # Format-specific limits with expanded summary lengths for better AI summary display
         self.format_limits = {
@@ -180,7 +188,7 @@ class DigestFormatter:
                 f"📅 {today_simple} • {topic_count} topics\n\n"
             )
         else:  # DETAILED or SUMMARY
-            reading_time = max(1, total_articles * 0.5)
+            reading_time = max(self.settings.delivery_quality.min_reading_time, total_articles * self.settings.delivery_quality.reading_time_per_article)
             header = (
                 f"🌟 *Your Daily Tech Digest*\n"
                 f"📅 {today_simple} • {today}\n\n"
@@ -336,7 +344,7 @@ class DigestFormatter:
             return None
 
         total_articles = sum(len(articles) for articles in articles_by_topic.values())
-        estimated_reading_time = max(1, total_articles * 0.5)  # 30 seconds per article
+        estimated_reading_time = max(self.settings.delivery_quality.min_reading_time, total_articles * self.settings.delivery_quality.reading_time_per_article)  # Configurable reading time per article
 
         footer = (
             f"📚 *Enjoyed this digest?*\n"
@@ -394,7 +402,7 @@ class DigestFormatter:
 
         best_break = max(last_period, last_exclamation, last_question)
 
-        if best_break > max_length * 0.7:  # If break point is reasonable
+        if best_break > max_length * self.settings.delivery_quality.content_break_threshold:  # If break point is reasonable
             return cleaned[:best_break + 1]
         else:
             return cleaned[:max_length - 3] + "..."
@@ -513,4 +521,6 @@ def create_digest_formatter() -> DigestFormatter:
     Returns:
         Configured DigestFormatter instance
     """
-    return DigestFormatter()
+    from ..config.settings import get_settings
+    settings = get_settings()
+    return DigestFormatter(settings)

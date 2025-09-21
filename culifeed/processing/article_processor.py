@@ -58,15 +58,23 @@ class DeduplicationStats:
 class ArticleProcessor:
     """Article content processing and deduplication."""
     
-    def __init__(self, db_connection: DatabaseConnection, max_content_length: int = 2000):
+    def __init__(self, db_connection: DatabaseConnection, max_content_length: int = 2000, settings: Optional['CuliFeedSettings'] = None):
         """Initialize article processor.
         
         Args:
             db_connection: Database connection manager
             max_content_length: Maximum content length for processing
+            settings: CuliFeed settings with configurable thresholds
         """
         self.db = db_connection
         self.logger = get_logger_for_component("article_processor")
+        
+        # Import here to avoid circular imports
+        if settings is None:
+            from ..config.settings import get_settings
+            settings = get_settings()
+        
+        self.settings = settings
         
         # Content quality thresholds
         self.min_title_length = 10
@@ -213,35 +221,35 @@ class ArticleProcessor:
         """
         score = 0.0
         
-        # Title quality (0.3 weight)
+        # Title quality (configurable weight)
         if article.title:
             title_len = len(article.title)
             if title_len >= self.min_title_length:
                 title_score = min(title_len / 100.0, 1.0)  # Normalize to 100 chars
-                score += title_score * 0.3
+                score += title_score * self.settings.filtering.title_quality_weight
         
-        # Content quality (0.5 weight)
+        # Content quality (configurable weight)
         if article.content:
             content_len = len(article.content)
             if content_len >= self.min_content_length:
                 content_score = min(content_len / 1000.0, 1.0)  # Normalize to 1000 chars
-                score += content_score * 0.5
+                score += content_score * self.settings.filtering.content_quality_weight
         
-        # Publication date (0.1 weight)
+        # Publication date (configurable weight)
         if article.published_at:
             # Newer articles get higher scores
             age_hours = (datetime.now(timezone.utc) - article.published_at).total_seconds() / 3600
             # Give full points for articles less than 24 hours old
             recency_score = max(0.0, 1.0 - (age_hours / (24 * 7)))  # Decay over a week
-            score += recency_score * 0.1
+            score += recency_score * self.settings.filtering.recency_weight
         
-        # URL quality (0.1 weight)
+        # URL quality (configurable weight)
         if article.url:
             url_str = str(article.url)
             # Penalize URLs with too many parameters (often low quality)
             param_count = url_str.count('&') + url_str.count('?')
             url_score = max(0.5, 1.0 - (param_count * 0.1))
-            score += url_score * 0.1
+            score += url_score * self.settings.filtering.url_quality_weight
         
         return min(score, 1.0)
     

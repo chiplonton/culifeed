@@ -57,6 +57,242 @@ class ProcessingSettings(BaseModel):
             raise ValueError("daily_run_hour must be between 0 and 23")
         return v
 
+class TrustValidationSettings(BaseModel):
+    """Trust validation and cross-validation settings."""
+    # Core score difference thresholds
+    max_score_difference: float = Field(default=0.7, ge=0.0, le=1.0, 
+                                       description="Max acceptable AI vs prefilter score difference (relaxed for Phase 1)")
+    warning_score_difference: float = Field(default=0.4, ge=0.0, le=1.0,
+                                           description="Score difference threshold for warnings")
+    min_prefilter_for_high_ai: float = Field(default=0.05, ge=0.0, le=1.0,
+                                            description="Min prefilter score for high AI scores")
+    max_ai_for_low_prefilter: float = Field(default=0.4, ge=0.0, le=1.0,
+                                           description="Max AI score for very low prefilter scores")
+    
+    # Confidence adjustment factors
+    confidence_penalty_factor: float = Field(default=0.85, ge=0.0, le=1.0,
+                                            description="Confidence reduction for warnings")
+    confidence_failure_factor: float = Field(default=0.5, ge=0.0, le=1.0,
+                                            description="Confidence reduction for failures")
+    
+    # Critical mismatch detection thresholds
+    critical_high_ai_threshold: float = Field(default=0.8, ge=0.0, le=1.0,
+                                             description="AI score threshold for critical mismatch detection")
+    critical_low_prefilter_threshold: float = Field(default=0.1, ge=0.0, le=1.0,
+                                                   description="Prefilter threshold for critical mismatch detection")
+    critical_low_ai_threshold: float = Field(default=0.2, ge=0.0, le=1.0,
+                                            description="Low AI score threshold for critical mismatch detection")  
+    critical_high_prefilter_threshold: float = Field(default=0.7, ge=0.0, le=1.0,
+                                                    description="High prefilter threshold for critical mismatch detection")
+    
+    # Suspicious score detection thresholds
+    suspicious_high_ai_threshold: float = Field(default=0.7, ge=0.0, le=1.0,
+                                               description="AI score threshold for suspicious high score detection")
+    suspicious_high_prefilter_threshold: float = Field(default=0.6, ge=0.0, le=1.0,
+                                                      description="Prefilter threshold for suspicious mismatch detection")
+    suspicious_low_ai_threshold: float = Field(default=0.3, ge=0.0, le=1.0,
+                                             description="AI score threshold for suspicious low score detection")
+    
+    # Batch consistency validation thresholds
+    min_pass_rate: float = Field(default=0.7, ge=0.0, le=1.0, 
+                                description="Minimum validation pass rate (70%)")
+    max_fail_rate: float = Field(default=0.1, ge=0.0, le=1.0, 
+                               description="Maximum validation fail rate (10%)")
+    provider_fail_rate_threshold: float = Field(default=0.2, ge=0.0, le=1.0,
+                                               description="Provider-specific fail rate threshold")
+
+
+class ProviderQualitySettings(BaseModel):
+    """AI provider quality factors for confidence adjustment."""
+    groq: float = Field(default=1.0, ge=0.0, le=1.0, description="Premium quality provider")
+    gemini: float = Field(default=1.0, ge=0.0, le=1.0, description="Premium quality provider") 
+    openai: float = Field(default=1.0, ge=0.0, le=1.0, description="Premium quality provider")
+    huggingface: float = Field(default=0.85, ge=0.0, le=1.0, description="Good but summarization-focused")
+    openrouter: float = Field(default=0.70, ge=0.0, le=1.0, description="Free tier limitations")
+    keyword_backup: float = Field(default=0.45, ge=0.0, le=1.0, description="Basic keyword matching")
+    keyword_fallback: float = Field(default=0.45, ge=0.0, le=1.0, description="Basic keyword matching")
+
+
+class QualityMonitoringSettings(BaseModel):
+    """Quality monitoring alert thresholds for system health tracking."""
+    # Core alert thresholds
+    validation_success_rate_min: float = Field(default=0.8, ge=0.0, le=1.0,
+                                              description="Minimum validation success rate (80%)")
+    score_difference_max: float = Field(default=0.4, ge=0.0, le=1.0,
+                                       description="Maximum acceptable score difference (40%)")
+    silent_failure_rate_max: float = Field(default=0.05, ge=0.0, le=1.0,
+                                          description="Maximum silent failure rate (5%)")
+    provider_consistency_min: float = Field(default=0.7, ge=0.0, le=1.0,
+                                           description="Minimum provider consistency (70%)")
+    overall_quality_min: float = Field(default=0.75, ge=0.0, le=1.0,
+                                      description="Minimum overall quality score (75%)")
+    
+    # Additional monitoring thresholds
+    high_validation_threshold: float = Field(default=0.9, ge=0.0, le=1.0,
+                                           description="High validation success threshold for alerts")
+    low_silent_failure_threshold: float = Field(default=0.02, ge=0.0, le=1.0,
+                                               description="Low silent failure threshold for warnings")
+    high_fallback_rate_threshold: float = Field(default=0.3, ge=0.0, le=1.0,
+                                               description="High keyword fallback rate threshold")
+    
+    # Quality score calculation factors
+    keyword_fallback_penalty: float = Field(default=0.5, ge=0.0, le=1.0,
+                                           description="Quality penalty factor for keyword fallback usage")
+
+
+class FilteringSettings(BaseModel):
+    """Pre-filtering and processing threshold configuration."""
+    
+    # Pre-filter thresholds
+    min_relevance_threshold: float = Field(
+        default=0.1, 
+        ge=0.0, 
+        le=1.0, 
+        description="Minimum relevance score to pass pre-filtering"
+    )
+    
+    # Phrase matching weights
+    exact_phrase_weight: float = Field(
+        default=0.8, 
+        ge=0.0, 
+        le=1.0, 
+        description="Weight for exact phrase matches in keyword scoring"
+    )
+    
+    partial_word_weight: float = Field(
+        default=0.4, 
+        ge=0.0, 
+        le=1.0, 
+        description="Weight for partial word matches in multi-word keywords"
+    )
+    
+    single_word_tf_cap: float = Field(
+        default=0.6, 
+        ge=0.0, 
+        le=1.0, 
+        description="Maximum score cap for single word TF (term frequency) scores"
+    )
+    
+    keyword_match_bonus: float = Field(
+        default=0.2, 
+        ge=0.0, 
+        le=1.0, 
+        description="Bonus multiplier for multiple keyword matches"
+    )
+    
+    # Processing thresholds
+    prefilter_minimum_threshold: float = Field(
+        default=0.1, 
+        ge=0.0, 
+        le=1.0, 
+        description="Minimum prefilter score required for hybrid fallback processing"
+    )
+    
+    fallback_relevance_threshold: float = Field(
+        default=0.3, 
+        ge=0.0, 
+        le=1.0, 
+        description="Minimum relevance score for keyword fallback processing"
+    )
+    
+    fallback_confidence_cap: float = Field(
+        default=0.6, 
+        ge=0.0, 
+        le=1.0, 
+        description="Maximum confidence score cap for hybrid fallback results"
+    )
+    
+    # Quality scoring weights for articles
+    title_quality_weight: float = Field(
+        default=0.3, 
+        ge=0.0, 
+        le=1.0, 
+        description="Weight of title quality in overall article quality score"
+    )
+    
+    content_quality_weight: float = Field(
+        default=0.5, 
+        ge=0.0, 
+        le=1.0, 
+        description="Weight of content quality in overall article quality score"
+    )
+    
+    recency_weight: float = Field(
+        default=0.1, 
+        ge=0.0, 
+        le=1.0, 
+        description="Weight of publication recency in overall article quality score"
+    )
+    
+    url_quality_weight: float = Field(
+        default=0.1, 
+        ge=0.0, 
+        le=1.0, 
+        description="Weight of URL quality in overall article quality score"
+    )
+
+class DeliveryQualitySettings(BaseModel):
+    """Message delivery quality thresholds and formatting configuration."""
+    
+    # Quality indicator thresholds
+    high_quality_threshold: float = Field(
+        default=0.8, 
+        ge=0.0, 
+        le=1.0, 
+        description="Confidence threshold for high quality articles"
+    )
+    
+    good_quality_threshold: float = Field(
+        default=0.65, 
+        ge=0.0, 
+        le=1.0, 
+        description="Confidence threshold for good quality articles"
+    )
+    
+    moderate_quality_threshold: float = Field(
+        default=0.45, 
+        ge=0.0, 
+        le=1.0, 
+        description="Confidence threshold for moderate quality articles"
+    )
+    
+    low_quality_threshold: float = Field(
+        default=0.0, 
+        ge=0.0, 
+        le=1.0, 
+        description="Confidence threshold for low quality articles (anything above)"
+    )
+    
+    # Reading time estimation
+    reading_time_per_article: float = Field(
+        default=0.5, 
+        ge=0.1, 
+        le=5.0, 
+        description="Estimated reading time per article in minutes"
+    )
+    
+    min_reading_time: float = Field(
+        default=1.0, 
+        ge=0.1, 
+        le=10.0, 
+        description="Minimum reading time to display in minutes"
+    )
+    
+    # Message formatting
+    message_delay_seconds: float = Field(
+        default=0.5, 
+        ge=0.0, 
+        le=5.0, 
+        description="Delay between sending multiple messages to avoid rate limiting"
+    )
+    
+    content_break_threshold: float = Field(
+        default=0.7, 
+        ge=0.1, 
+        le=1.0, 
+        description="Ratio threshold for smart content breaking at sentence boundaries"
+    )
+
 
 class LimitsSettings(BaseModel):
     """Cost control and rate limiting settings."""
@@ -190,6 +426,13 @@ class CuliFeedSettings(BaseSettings):
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     telegram: TelegramSettings
     ai: AISettings = Field(default_factory=AISettings)
+    
+    # Advanced configuration sections
+    trust_validation: TrustValidationSettings = Field(default_factory=TrustValidationSettings)
+    provider_quality: ProviderQualitySettings = Field(default_factory=ProviderQualitySettings)
+    quality_monitoring: QualityMonitoringSettings = Field(default_factory=QualityMonitoringSettings)
+    filtering: FilteringSettings = Field(default_factory=FilteringSettings)
+    delivery_quality: DeliveryQualitySettings = Field(default_factory=DeliveryQualitySettings)
     
     # Application metadata
     app_name: str = Field(default="CuliFeed", description="Application name")
