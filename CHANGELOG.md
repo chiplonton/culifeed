@@ -5,6 +5,45 @@ All notable changes to CuliFeed will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2025-01-22
+
+### Added
+
+#### User Experience Improvements
+- **Topic Input Validation**: AI keyword generation now requires 5-20 words for better context and quality
+- **Enhanced Bot Command Menu**: Fixed missing Telegram command suggestions and bot menu display
+- **Improved Topics Display**: Better visual separation between topic names and keywords with indented format
+- **Smart Validation Guidance**: Helpful examples and fallback options when validation fails
+
+#### Bot Interface Enhancements
+- **Visual Topic Formatting**: Topics now display with clear visual hierarchy using 🎯 emoji and indented keywords
+- **Command Menu Registration**: Fixed bot command registration in sync initialization path
+- **Complete Keyword Display**: Removed truncation of keywords - users now see all their configured keywords
+- **Better Error Messages**: More user-friendly validation errors with examples and alternatives
+
+#### Technical Improvements
+- **Dual-Mode Topic Creation**: Maintains both AI generation (with validation) and manual keyword modes
+- **Development Workflow**: Added venv activation requirements to CLAUDE.md for consistent development
+- **Docker Validation**: Comprehensive dependency testing in containerized environment
+- **Enhanced Validation System**: Separate validation methods for AI vs manual topic creation
+
+### Changed
+- **Topic Validation**: Only applies to AI keyword generation mode, preserving manual mode flexibility
+- **Display Format**: Improved topic list formatting for better readability and user experience
+- **Command Registration**: Fixed synchronous command setup to ensure bot menu appears correctly
+
+### Fixed
+- **Missing Bot Menu**: Resolved issue where Telegram bot command suggestions and menu were not displayed
+- **Keyword Truncation**: Fixed "+N more" issue that prevented users from seeing all their keywords
+- **Command Registration**: Fixed bot command menu setup in sync initialization path
+- **Markdown Formatting**: Corrected topic name formatting for better Telegram display
+
+### Technical Details
+- Enhanced `ContentValidator` with `validate_topic_name_for_ai_generation()` method
+- Improved `TopicCommandHandler` with better UX and visual formatting
+- Fixed `TelegramBotService` command menu registration in sync mode
+- Updated development guidelines in CLAUDE.md
+
 ## [1.0.0] - 2025-01-19
 
 ### Added
