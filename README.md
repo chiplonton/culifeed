@@ -41,7 +41,7 @@ docker run -d \
 ### Step 3: Configure Bot in Telegram
 1. **Add bot to your channel/group** (auto-registers)
 2. **Initialize**: `/start`
-3. **Add topics**: `/addtopic Machine Learning` 
+3. **Add topics**: `/addtopic Machine Learning` (AI generates keywords) or `/addtopic Cloud, AWS, Azure` (manual keywords) 
 4. **Add RSS feeds**: `/addfeed https://news.ycombinator.com/rss`
 5. **Check setup**: `/status`
 6. **Get daily digest automatically!** 📬
@@ -95,9 +95,9 @@ CULIFEED_LOGGING__LEVEL=INFO
 | Command | Description | Example |
 |---------|-------------|---------|
 | `/topics` | List your configured topics | `/topics` |
-| `/addtopic` | Add content topic with AI keywords | `/addtopic Machine Learning` |
+| `/addtopic` | Add topic with AI keywords or manual | `/addtopic Machine Learning` or `/addtopic Cloud, AWS, Azure` |
 | `/removetopic` | Remove a topic | `/removetopic AI` |
-| `/edittopic` | Edit existing topic | `/edittopic AI` |
+| `/edittopic` | Edit existing topic | `/edittopic AI new, keywords, here` |
 
 ### 📡 **Feed Management**
 | Command | Description | Example |
