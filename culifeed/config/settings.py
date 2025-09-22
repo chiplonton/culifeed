@@ -28,6 +28,14 @@ class AIProvider(str, Enum):
     OPENAI = "openai"
 
 
+class ProviderPriority(str, Enum):
+    """Predefined provider priority profiles."""
+    COST_OPTIMIZED = "cost_optimized"     # Free tiers first
+    QUALITY_FIRST = "quality_first"       # Premium models first  
+    BALANCED = "balanced"                 # Mix of cost and quality
+    CUSTOM = "custom"                     # User-defined order
+
+
 class LogLevel(str, Enum):
     """Available log levels."""
     DEBUG = "DEBUG"
@@ -56,6 +64,245 @@ class ProcessingSettings(BaseModel):
         if not (0 <= v <= 23):
             raise ValueError("daily_run_hour must be between 0 and 23")
         return v
+
+# Trust validation settings removed for simplification
+
+
+class ProviderQualitySettings(BaseModel):
+    """AI provider quality factors for confidence adjustment."""
+    groq: float = Field(default=1.0, ge=0.0, le=1.0, description="Premium quality provider")
+    gemini: float = Field(default=1.0, ge=0.0, le=1.0, description="Premium quality provider") 
+    openai: float = Field(default=1.0, ge=0.0, le=1.0, description="Premium quality provider")
+    huggingface: float = Field(default=0.85, ge=0.0, le=1.0, description="Good but summarization-focused")
+    openrouter: float = Field(default=0.70, ge=0.0, le=1.0, description="Free tier limitations")
+    keyword_backup: float = Field(default=0.45, ge=0.0, le=1.0, description="Basic keyword matching")
+    keyword_fallback: float = Field(default=0.45, ge=0.0, le=1.0, description="Basic keyword matching")
+
+
+# Quality monitoring settings removed for simplification
+
+
+class FilteringSettings(BaseModel):
+    """Pre-filtering and processing threshold configuration."""
+    
+    # Pre-filter thresholds
+    min_relevance_threshold: float = Field(
+        default=0.1, 
+        ge=0.0, 
+        le=1.0, 
+        description="Minimum relevance score to pass pre-filtering"
+    )
+    
+    # Phrase matching weights
+    exact_phrase_weight: float = Field(
+        default=0.8, 
+        ge=0.0, 
+        le=1.0, 
+        description="Weight for exact phrase matches in keyword scoring"
+    )
+    
+    partial_word_weight: float = Field(
+        default=0.4, 
+        ge=0.0, 
+        le=1.0, 
+        description="Weight for partial word matches in multi-word keywords"
+    )
+    
+    single_word_tf_cap: float = Field(
+        default=0.6, 
+        ge=0.0, 
+        le=1.0, 
+        description="Maximum score cap for single word TF (term frequency) scores"
+    )
+    
+    keyword_match_bonus: float = Field(
+        default=0.2, 
+        ge=0.0, 
+        le=1.0, 
+        description="Bonus multiplier for multiple keyword matches"
+    )
+    
+    # Processing thresholds
+
+    
+    fallback_relevance_threshold: float = Field(
+        default=0.3, 
+        ge=0.0, 
+        le=1.0, 
+        description="Minimum relevance score for keyword fallback processing"
+    )
+    
+    fallback_confidence_cap: float = Field(
+        default=0.6, 
+        ge=0.0, 
+        le=1.0, 
+        description="Maximum confidence score cap for hybrid fallback results"
+    )
+    
+    # Quality scoring weights for articles
+    title_quality_weight: float = Field(
+        default=0.3, 
+        ge=0.0, 
+        le=1.0, 
+        description="Weight of title quality in overall article quality score"
+    )
+    
+    content_quality_weight: float = Field(
+        default=0.5, 
+        ge=0.0, 
+        le=1.0, 
+        description="Weight of content quality in overall article quality score"
+    )
+    
+    recency_weight: float = Field(
+        default=0.1, 
+        ge=0.0, 
+        le=1.0, 
+        description="Weight of publication recency in overall article quality score"
+    )
+    
+    url_quality_weight: float = Field(
+        default=0.1, 
+        ge=0.0, 
+        le=1.0, 
+        description="Weight of URL quality in overall article quality score"
+    )
+
+class SmartProcessingSettings(BaseModel):
+    """Smart processing configuration for confidence-based routing."""
+    
+    enabled: bool = Field(
+        default=True,
+        description="Enable smart pre-filtering with confidence scoring"
+    )
+    
+    # Confidence-based routing thresholds
+    high_confidence_threshold: float = Field(
+        default=0.8,
+        ge=0.0,
+        le=1.0,
+        description="Route directly without AI if confidence >= this value"
+    )
+    
+    low_confidence_threshold: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="Route to keyword fallback if confidence >= this and score low"
+    )
+    
+    # Routing decision thresholds
+    definitely_relevant_threshold: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Score threshold for 'definitely relevant' routing"
+    )
+    
+    definitely_irrelevant_threshold: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Score threshold for 'definitely irrelevant' routing"
+    )
+    
+    # Performance and caching
+    similarity_cache_enabled: bool = Field(
+        default=True,
+        description="Enable basic content similarity caching"
+    )
+    
+    max_cache_entries: int = Field(
+        default=1000,
+        ge=100,
+        le=10000,
+        description="Maximum entries in similarity cache"
+    )
+    
+    # Cost optimization settings
+    ai_skip_rate_target: float = Field(
+        default=0.4,
+        ge=0.0,
+        le=0.8,
+        description="Target AI request reduction through smart routing (40%)"
+    )
+    
+    quality_assurance_sample_rate: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=1.0,
+        description="Sample rate for quality validation of skipped articles (10%)"
+    )
+
+class DeliveryQualitySettings(BaseModel):
+    """Message delivery quality thresholds and formatting configuration."""
+    
+    # Quality indicator thresholds
+    high_quality_threshold: float = Field(
+        default=0.8, 
+        ge=0.0, 
+        le=1.0, 
+        description="Confidence threshold for high quality articles"
+    )
+    
+    good_quality_threshold: float = Field(
+        default=0.65, 
+        ge=0.0, 
+        le=1.0, 
+        description="Confidence threshold for good quality articles"
+    )
+    
+    moderate_quality_threshold: float = Field(
+        default=0.45, 
+        ge=0.0, 
+        le=1.0, 
+        description="Confidence threshold for moderate quality articles"
+    )
+    
+    low_quality_threshold: float = Field(
+        default=0.0, 
+        ge=0.0, 
+        le=1.0, 
+        description="Confidence threshold for low quality articles (anything above)"
+    )
+    
+    # Content length limits - SINGLE SOURCE OF TRUTH
+    max_summary_length: int = Field(
+        default=700,
+        ge=100,
+        le=2000,
+        description="Maximum length for both AI summaries and content previews (prevents message overflow)"
+    )
+    
+    # Reading time estimation
+    reading_time_per_article: float = Field(
+        default=0.5, 
+        ge=0.1, 
+        le=5.0, 
+        description="Estimated reading time per article in minutes"
+    )
+    
+    min_reading_time: float = Field(
+        default=1.0, 
+        ge=0.1, 
+        le=10.0, 
+        description="Minimum reading time to display in minutes"
+    )
+    
+    # Message formatting
+    message_delay_seconds: float = Field(
+        default=0.5, 
+        ge=0.0, 
+        le=5.0, 
+        description="Delay between sending multiple messages to avoid rate limiting"
+    )
+    
+    content_break_threshold: float = Field(
+        default=0.7, 
+        ge=0.1, 
+        le=1.0, 
+        description="Ratio threshold for smart content breaking at sentence boundaries"
+    )
 
 
 class LimitsSettings(BaseModel):
@@ -140,6 +387,16 @@ class AISettings(BaseModel):
     temperature: float = Field(default=0.1, ge=0.0, le=2.0, description="AI temperature setting")
     max_tokens: int = Field(default=500, ge=50, le=2000, description="Maximum tokens per response")
     
+    # Provider Priority Configuration
+    provider_priority_profile: ProviderPriority = Field(
+        default=ProviderPriority.COST_OPTIMIZED, 
+        description="Provider priority strategy: cost_optimized, quality_first, balanced, or custom"
+    )
+    custom_provider_order: List[AIProvider] = Field(
+        default_factory=list,
+        description="Custom provider priority order (used when profile is 'custom')"
+    )
+    
     def get_primary_api_key(self, provider: AIProvider) -> Optional[str]:
         """Get API key for specified provider."""
         if provider == AIProvider.GEMINI:
@@ -171,6 +428,55 @@ class AISettings(BaseModel):
     def validate_provider_key(self, provider: AIProvider) -> bool:
         """Check if API key is available for provider."""
         return bool(self.get_primary_api_key(provider))
+    
+    def get_provider_priority_order(self) -> List[AIProvider]:
+        """Get provider priority order based on configuration.
+        
+        Returns:
+            List of providers in priority order based on profile
+        """
+        if self.provider_priority_profile == ProviderPriority.CUSTOM:
+            if self.custom_provider_order:
+                return list(self.custom_provider_order)
+            else:
+                # Fallback to cost optimized if custom is empty
+                return [AIProvider.GROQ, AIProvider.HUGGINGFACE, AIProvider.OPENROUTER, 
+                       AIProvider.GEMINI, AIProvider.OPENAI]
+        
+        elif self.provider_priority_profile == ProviderPriority.QUALITY_FIRST:
+            return [AIProvider.OPENAI, AIProvider.GEMINI, AIProvider.GROQ, 
+                   AIProvider.HUGGINGFACE, AIProvider.OPENROUTER]
+        
+        elif self.provider_priority_profile == ProviderPriority.BALANCED:
+            return [AIProvider.GEMINI, AIProvider.GROQ, AIProvider.OPENAI,
+                   AIProvider.HUGGINGFACE, AIProvider.OPENROUTER]
+        
+        else:  # COST_OPTIMIZED (default)
+            return [AIProvider.GROQ, AIProvider.HUGGINGFACE, AIProvider.OPENROUTER, 
+                   AIProvider.GEMINI, AIProvider.OPENAI]
+    
+    def validate_priority_configuration(self) -> List[str]:
+        """Validate provider priority configuration.
+        
+        Returns:
+            List of validation errors (empty if valid)
+        """
+        errors = []
+        
+        if self.provider_priority_profile == ProviderPriority.CUSTOM:
+            if not self.custom_provider_order:
+                errors.append("Custom provider order is empty when using custom profile")
+            else:
+                # Check for duplicates
+                if len(self.custom_provider_order) != len(set(self.custom_provider_order)):
+                    errors.append("Duplicate providers found in custom_provider_order")
+                
+                # Check for invalid providers
+                for provider in self.custom_provider_order:
+                    if provider not in AIProvider:
+                        errors.append(f"Invalid provider in custom order: {provider}")
+        
+        return errors
 
 
 class UserSettings(BaseModel):
@@ -190,6 +496,12 @@ class CuliFeedSettings(BaseSettings):
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     telegram: TelegramSettings
     ai: AISettings = Field(default_factory=AISettings)
+    
+    # Advanced configuration sections
+    provider_quality: ProviderQualitySettings = Field(default_factory=ProviderQualitySettings)
+    filtering: FilteringSettings = Field(default_factory=FilteringSettings)
+    smart_processing: SmartProcessingSettings = Field(default_factory=SmartProcessingSettings)
+    delivery_quality: DeliveryQualitySettings = Field(default_factory=DeliveryQualitySettings)
     
     # Application metadata
     app_name: str = Field(default="CuliFeed", description="Application name")

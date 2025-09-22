@@ -33,19 +33,28 @@ class DigestFormat(str, Enum):
 class DigestFormatter:
     """Formats curated content into various digest styles."""
 
-    def __init__(self, max_message_length: int = 4096):
+    def __init__(self, settings: Optional['CuliFeedSettings'] = None, max_message_length: int = 4096):
         """Initialize the digest formatter.
         
         Args:
+            settings: CuliFeed settings with configurable thresholds
             max_message_length: Maximum length for a single message
         """
         self.max_message_length = max_message_length
         self.logger = get_logger_for_component('formatter')
         
-        # Format-specific limits with expanded summary lengths for better AI summary display
+        # Import here to avoid circular imports
+        if settings is None:
+            from ..config.settings import get_settings
+            settings = get_settings()
+        
+        self.settings = settings
+        
+        # Format-specific limits using centralized config for summary length
+        max_summary = self.settings.delivery_quality.max_summary_length  # SINGLE SOURCE OF TRUTH
         self.format_limits = {
             DigestFormat.COMPACT: {'articles_per_topic': 3, 'title_length': 120, 'summary_length': 100},
-            DigestFormat.DETAILED: {'articles_per_topic': 5, 'title_length': 120, 'summary_length': 700},  # Increased for full AI summaries
+            DigestFormat.DETAILED: {'articles_per_topic': 5, 'title_length': 120, 'summary_length': max_summary},  # Use centralized config
             DigestFormat.SUMMARY: {'articles_per_topic': 8, 'title_length': 120, 'summary_length': 0},
             DigestFormat.HEADLINES: {'articles_per_topic': 10, 'title_length': 120, 'summary_length': 0}
         }
@@ -180,7 +189,7 @@ class DigestFormatter:
                 f"📅 {today_simple} • {topic_count} topics\n\n"
             )
         else:  # DETAILED or SUMMARY
-            reading_time = max(1, total_articles * 0.5)
+            reading_time = max(self.settings.delivery_quality.min_reading_time, total_articles * self.settings.delivery_quality.reading_time_per_article)
             header = (
                 f"🌟 *Your Daily Tech Digest*\n"
                 f"📅 {today_simple} • {today}\n\n"
@@ -336,7 +345,7 @@ class DigestFormatter:
             return None
 
         total_articles = sum(len(articles) for articles in articles_by_topic.values())
-        estimated_reading_time = max(1, total_articles * 0.5)  # 30 seconds per article
+        estimated_reading_time = max(self.settings.delivery_quality.min_reading_time, total_articles * self.settings.delivery_quality.reading_time_per_article)  # Configurable reading time per article
 
         footer = (
             f"📚 *Enjoyed this digest?*\n"
@@ -379,25 +388,32 @@ class DigestFormatter:
         if not content:
             return ""
 
+        # SAFETY: Use centralized config - SINGLE SOURCE OF TRUTH
+        absolute_max = min(max_length, self.settings.delivery_quality.max_summary_length)
+        
         # Clean up content
         cleaned = re.sub(r'\s+', ' ', content.strip())
 
+        # SAFETY: Truncate to absolute max first
+        if len(cleaned) > absolute_max * 3:  # If content is way too long
+            cleaned = cleaned[:absolute_max * 3]
+
         # Find a good break point
-        if len(cleaned) <= max_length:
+        if len(cleaned) <= absolute_max:
             return cleaned
 
         # Try to break at sentence end
-        preview = cleaned[:max_length]
+        preview = cleaned[:absolute_max]
         last_period = preview.rfind('.')
         last_exclamation = preview.rfind('!')
         last_question = preview.rfind('?')
 
         best_break = max(last_period, last_exclamation, last_question)
 
-        if best_break > max_length * 0.7:  # If break point is reasonable
+        if best_break > absolute_max * self.settings.delivery_quality.content_break_threshold:  # If break point is reasonable
             return cleaned[:best_break + 1]
         else:
-            return cleaned[:max_length - 3] + "..."
+            return cleaned[:absolute_max - 3] + "..."
 
     def _extract_source_name(self, source_feed: str) -> str:
         """Extract a readable source name from feed URL.
@@ -513,4 +529,6 @@ def create_digest_formatter() -> DigestFormatter:
     Returns:
         Configured DigestFormatter instance
     """
-    return DigestFormatter()
+    from ..config.settings import get_settings
+    settings = get_settings()
+    return DigestFormatter(settings)

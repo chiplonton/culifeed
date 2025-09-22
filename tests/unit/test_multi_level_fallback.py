@@ -39,21 +39,29 @@ def test_configuration_multi_models():
         # Test that multi-model configuration exists
         assert hasattr(settings.ai, 'groq_models'), "Missing groq_models configuration"
         assert hasattr(settings.ai, 'gemini_models'), "Missing gemini_models configuration"
+        assert hasattr(settings.ai, 'huggingface_models'), "Missing huggingface_models configuration"
         assert hasattr(settings.ai, 'get_models_for_provider'), "Missing get_models_for_provider method"
-        
+
         # Test Groq models
         groq_models = settings.ai.get_models_for_provider(ConfigAIProvider.GROQ)
         assert isinstance(groq_models, list), "Groq models should be a list"
         assert len(groq_models) >= 1, "Should have at least one Groq model"
         assert "llama-3.1-8b-instant" in groq_models, "Should include default Groq model"
-        
-        # Test Gemini models  
+
+        # Test Gemini models
         gemini_models = settings.ai.get_models_for_provider(ConfigAIProvider.GEMINI)
         assert isinstance(gemini_models, list), "Gemini models should be a list"
         assert len(gemini_models) >= 1, "Should have at least one Gemini model"
-        
+
+        # Test HuggingFace models
+        huggingface_models = settings.ai.get_models_for_provider(ConfigAIProvider.HUGGINGFACE)
+        assert isinstance(huggingface_models, list), "HuggingFace models should be a list"
+        assert len(huggingface_models) >= 1, "Should have at least one HuggingFace model"
+        assert "facebook/bart-large-cnn" in huggingface_models, "Should include confirmed working model"
+
         print(f"  ✅ Groq models: {groq_models}")
         print(f"  ✅ Gemini models: {gemini_models}")
+        print(f"  ✅ HuggingFace models: {huggingface_models}")
         return True
         
     except Exception as e:
@@ -177,6 +185,37 @@ def test_gemini_provider_basic_structure():
         return False
 
 
+def test_huggingface_provider_basic_structure():
+    """Test HuggingFaceProvider basic structure and available models."""
+    print("🤗 Testing HuggingFaceProvider basic structure...")
+
+    try:
+        # Mock aiohttp to avoid import issues
+        with patch('culifeed.ai.providers.huggingface_provider.AIOHTTP_AVAILABLE', True):
+            from culifeed.ai.providers.huggingface_provider import HuggingFaceProvider
+
+            # Test get_available_models (static method)
+            models = HuggingFaceProvider.get_available_models()
+            assert isinstance(models, list), "Available models should be a list"
+            assert len(models) > 0, "Should have available models"
+            assert "facebook/bart-large-cnn" in models, "Should include confirmed working model"
+
+            # Test that the class has required methods
+            required_methods = ['analyze_relevance', 'generate_summary', 'test_connection',
+                              'set_model', 'analyze_relevance_with_model', 'generate_summary_with_model']
+
+            for method_name in required_methods:
+                assert hasattr(HuggingFaceProvider, method_name), f"Should have {method_name} method"
+
+            print(f"  ✅ Available HuggingFace models: {models}")
+            print(f"  ✅ All required methods present")
+            return True
+
+    except Exception as e:
+        print(f"  ❌ HuggingFaceProvider basic structure test failed: {e}")
+        return False
+
+
 @pytest.mark.asyncio
 async def test_ai_manager_fallback_logic():
     """Test AIManager two-level fallback logic."""
@@ -282,6 +321,7 @@ def run_all_tests():
         ("Provider-Model Combinations", test_provider_model_combinations),
         ("GroqProvider Multi-Model", test_groq_provider_multi_model),
         ("GeminiProvider Basic Structure", test_gemini_provider_basic_structure),
+        ("HuggingFaceProvider Basic Structure", test_huggingface_provider_basic_structure),
         ("Error Handling", test_error_handling),
     ]
     

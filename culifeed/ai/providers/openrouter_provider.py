@@ -134,9 +134,9 @@ class OpenRouterProvider(AIProvider):
         self.logger.error(error_msg)
         return AIResult(
             success=False,
-            error_message=error_msg,
-            provider="openrouter",
-            error_code=ErrorCode.AI_API_ERROR
+            relevance_score=0.0,
+            confidence=0.0,
+            error_message=error_msg
         )
 
     async def _analyze_with_model(self, article: Article, topic: Topic, model_name: str) -> AIResult:
@@ -167,9 +167,7 @@ class OpenRouterProvider(AIProvider):
             return self._create_success_result(
                 relevance_score=result["relevance_score"],
                 confidence=result["confidence"],
-                reasoning=result["reasoning"],
-                provider="openrouter",
-                model_used=model_name
+                reasoning=result["reasoning"]
             )
 
         except openai.RateLimitError as e:
@@ -248,9 +246,7 @@ Provide a concise, informative summary that captures the essence of the article.
                 relevance_score=1.0,  # Summary always succeeds if we get here
                 confidence=0.9,       # High confidence for summarization
                 summary=summary,
-                tokens_used=getattr(response.usage, 'total_tokens', None) if hasattr(response, 'usage') else None,
-                provider="openrouter",
-                model_used=model_name
+                tokens_used=getattr(response.usage, 'total_tokens', None) if hasattr(response, 'usage') else None
             )
 
         except Exception as e:
@@ -332,9 +328,7 @@ Keywords:"""
             return self._create_success_result(
                 relevance_score=1.0,  # Keywords always succeed if we get here
                 confidence=0.9,       # High confidence for keyword generation
-                content=keywords,
-                provider="openrouter",
-                model_used=model_name
+                content=keywords
             )
 
         except Exception as e:

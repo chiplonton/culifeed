@@ -29,6 +29,7 @@ from ..utils.logging import get_logger_for_component
 from ..utils.exceptions import DeliveryError, ErrorCode
 from .digest_formatter import DigestFormatter, DigestFormat
 
+
 @dataclass
 class DeliveryResult:
     """Result of message delivery operation."""
@@ -60,7 +61,9 @@ class MessageSender:
         self.logger = get_logger_for_component('message_sender')
 
         # Use DigestFormatter for all formatting needs
-        self.formatter = DigestFormatter()
+        self.formatter = DigestFormatter(self.settings)
+
+
 
         # Message formatting settings
         self.max_message_length = 4096  # Telegram limit
@@ -92,11 +95,8 @@ class MessageSender:
                     error="No articles ready for delivery"
                 )
 
-            # Format messages using DigestFormatter
-            formatted_messages = self.formatter.format_daily_digest(
-                articles_by_topic,
-                DigestFormat.DETAILED
-            )
+            # Format messages for delivery
+            formatted_messages = self._format_transparent_digest(articles_by_topic)
 
             # Send all formatted messages
             messages_sent = 0
@@ -108,7 +108,7 @@ class MessageSender:
                     messages_sent += 1
 
                 # Small delay between messages to avoid rate limiting
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(self.settings.delivery_quality.message_delay_seconds)
 
             # Update delivery status in database
             await self._mark_articles_delivered(chat_id, articles_by_topic)
@@ -215,8 +215,10 @@ class MessageSender:
                     SELECT a.*, pr.topic_name, pr.ai_relevance_score, pr.confidence_score
                     FROM processing_results pr
                     JOIN articles a ON pr.article_id = a.id
+                    JOIN topics t ON pr.chat_id = t.chat_id AND pr.topic_name = t.name
                     WHERE pr.chat_id = ? 
                     AND pr.delivered = 0
+                    AND pr.confidence_score >= t.confidence_threshold
                     AND datetime(pr.processed_at) >= datetime('now', '-1 days')
                     ORDER BY pr.topic_name, pr.ai_relevance_score DESC, a.published_at DESC
                 """, (chat_id,)).fetchall()
@@ -270,6 +272,18 @@ class MessageSender:
         # Return empty results instead of all articles to all topics
         # This prevents the original bug where unrelated articles get delivered
         return {}
+
+    def _format_transparent_digest(self, articles_by_topic: Dict[str, List[Article]]) -> List[str]:
+        """Format daily digest for delivery using DigestFormatter.
+
+        Args:
+            articles_by_topic: Dictionary mapping topic names to article lists
+
+        Returns:
+            List of formatted message strings
+        """
+        # Use the DigestFormatter to handle all formatting
+        return self.formatter.format_daily_digest(articles_by_topic)
 
     async def _send_message(self, chat_id: str, message: str, retries: int = 3) -> bool:
         """Send a message to a chat with retry logic.

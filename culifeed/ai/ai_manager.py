@@ -8,7 +8,7 @@ and cost optimization for article relevance analysis and summarization.
 
 import asyncio
 import time
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Any
 from dataclasses import dataclass
 from enum import Enum
 
@@ -18,9 +18,10 @@ from .providers.huggingface_provider import HuggingFaceProvider
 from .providers.openrouter_provider import OpenRouterProvider
 from .providers.gemini_provider import GeminiProvider
 from ..database.models import Article, Topic
-from ..config.settings import get_settings, AIProvider as ConfigAIProvider
+from ..config.settings import get_settings, AIProvider as ConfigAIProvider, ProviderPriority
 from ..utils.logging import get_logger_for_component
 from ..utils.exceptions import ErrorCode
+# Monitoring imports removed - simplified system
 
 
 @dataclass
@@ -92,7 +93,12 @@ class AIManager:
         # Fallback configuration
         self.fallback_strategy = FallbackStrategy.NEXT_AVAILABLE
         self.enable_keyword_fallback = self.settings.limits.fallback_to_keywords
-        
+
+        # Monitoring systems removed for simplification
+
+        # Validate provider priority configuration
+        self._validate_and_log_provider_configuration()
+
         self.logger.info(
             f"AI Manager initialized with primary: {self.primary_provider}, "
             f"available providers: {list(self.providers.keys())}"
@@ -208,17 +214,19 @@ class AIManager:
         self.logger.debug(f"Provider-model combinations: {combinations}")
         return combinations
     
-    async def analyze_relevance(self, article: Article, topic: Topic, 
-                              fallback_strategy: FallbackStrategy = None) -> AIResult:
-        """Analyze article relevance with two-level fallback (model + provider).
-        
+    async def analyze_relevance(self, article: Article, topic: Topic,
+                              fallback_strategy: FallbackStrategy = None,
+) -> AIResult:
+        """Analyze article relevance with two-level fallback and validation.
+
         Args:
             article: Article to analyze
             topic: Topic to match against
             fallback_strategy: Override default fallback strategy
-            
+
+
         Returns:
-            AIResult with relevance analysis
+            AIResult with relevance analysis and validation metadata
         """
         strategy = fallback_strategy or self.fallback_strategy
         
@@ -226,31 +234,37 @@ class AIManager:
         combinations = self._get_provider_model_combinations()
         
         last_error = None
-        
+        processing_start_time = time.time()
+
         for provider_type, model_name in combinations:
             provider = self.providers.get(provider_type)
             health = self.provider_health.get(provider_type)
-            
+
             if not provider or not health or not health.is_healthy:
                 continue
-            
+
             try:
                 self.logger.debug(f"Analyzing relevance with {provider_type}/{model_name}")
-                
+
                 # Use model-specific method if provider supports it
                 if hasattr(provider, 'analyze_relevance_with_model'):
                     result = await provider.analyze_relevance_with_model(article, topic, model_name)
                 else:
                     # Fallback to basic analyze_relevance (single model providers)
                     result = await provider.analyze_relevance(article, topic)
-                
+
                 if result.success:
                     health.record_success()
+                    
+                    # Apply provider quality adjustments
+                    adjusted_result = self._apply_provider_quality_adjustments(result, provider_type)
+                    
                     self.logger.debug(
                         f"Relevance analysis successful: {provider_type}/{model_name} "
-                        f"score={result.relevance_score:.3f}"
+                        f"raw_score={result.relevance_score:.3f}, adjusted_score={adjusted_result.relevance_score:.3f}, "
+                        f"confidence={adjusted_result.confidence:.3f}"
                     )
-                    return result
+                    return adjusted_result
                 else:
                     health.record_error()
                     last_error = AIError(
@@ -278,7 +292,12 @@ class AIManager:
         # All provider-model combinations failed - try keyword fallback if enabled
         if strategy == FallbackStrategy.NEXT_AVAILABLE and self.enable_keyword_fallback:
             self.logger.info("All AI provider-model combinations failed, falling back to keyword matching")
-            return self._keyword_fallback_analysis(article, topic)
+            fallback_result = self._keyword_fallback_analysis(article, topic)
+
+            # Apply quality adjustment for keyword fallback too
+            adjusted_fallback = self._apply_provider_quality_adjustments(fallback_result, "keyword_fallback")
+
+            return adjusted_fallback
         
         # No fallback or fallback disabled
         error_msg = f"All AI provider-model combinations failed. Last error: {last_error.user_message if last_error else 'Unknown'}"
@@ -290,6 +309,50 @@ class AIManager:
             confidence=0.0,
             error_message=error_msg
         )
+
+    def _apply_provider_quality_adjustments(self, result: AIResult, provider_type: Union[AIProviderType, str]) -> AIResult:
+        """Apply provider quality adjustments to AI results.
+        
+        Args:
+            result: Original AI result
+            provider_type: Provider type or string identifier
+            
+        Returns:
+            AIResult with adjusted scores based on provider quality settings
+        """
+        if not result.success:
+            return result
+            
+        # Get provider quality factor from settings
+        provider_key = provider_type.value if hasattr(provider_type, 'value') else str(provider_type)
+        quality_factor = getattr(self.settings.provider_quality, provider_key.lower(), 1.0)
+        
+        # Apply quality adjustments
+        adjusted_relevance = result.relevance_score * quality_factor
+        adjusted_confidence = result.confidence * quality_factor
+        
+        # Log quality adjustment if significant
+        if quality_factor != 1.0:
+            self.logger.debug(
+                f"Applied quality adjustment for {provider_key}: "
+                f"relevance {result.relevance_score:.3f} → {adjusted_relevance:.3f} "
+                f"(factor: {quality_factor})"
+            )
+        
+        # Create new result with adjusted scores
+        adjusted_result = AIResult(
+            success=result.success,
+            relevance_score=adjusted_relevance,
+            confidence=adjusted_confidence,
+            reasoning=result.reasoning,
+            provider=result.provider,
+            processing_time_ms=result.processing_time_ms,
+            error_message=result.error_message,
+            matched_keywords=getattr(result, 'matched_keywords', None),
+            summary=getattr(result, 'summary', None)
+        )
+        
+        return adjusted_result
     
     async def generate_summary(self, article: Article, max_sentences: int = 3) -> AIResult:
         """Generate article summary with two-level fallback (model + provider).
@@ -394,41 +457,53 @@ class AIManager:
         return self._create_fallback_keywords(topic_name, max_keywords)
     
     def _get_provider_priority_order(self) -> List[AIProviderType]:
-        """Get provider priority order: Groq → OpenRouter → Gemini → OpenAI.
+        """Get provider priority order based on user configuration.
 
         Returns:
-            List of provider types in priority order
+            List of provider types in priority order based on settings
         """
-        # Define explicit priority order for reliable fallback chain
-        PRIORITY_ORDER = [
-            AIProviderType.GROQ,        # Primary: Fast and reliable
-            AIProviderType.HUGGINGFACE, # Secondary: High capacity free tier (24K daily)
-            AIProviderType.OPENROUTER,  # Tertiary: Free models with diversity
-            AIProviderType.GEMINI,      # Final fallback: Proven reliability
-            AIProviderType.OPENAI       # Last resort: Premium models
-        ]
-
+        # Get configured provider priority order
+        config_providers = self.settings.ai.get_provider_priority_order()
+        
+        # Convert config providers to provider types and filter available
+        priority_order = []
+        for config_provider in config_providers:
+            provider_type = self._config_to_provider_type(config_provider)
+            if provider_type:
+                priority_order.append(provider_type)
+        
+        # Log the configured priority for debugging
+        profile = self.settings.ai.provider_priority_profile
+        if profile == ProviderPriority.CUSTOM:
+            self.logger.info(f"Using custom provider priority: {[p.value for p in config_providers]}")
+        else:
+            self.logger.info(f"Using {profile.value} provider priority profile")
+        
+        # Filter available and healthy providers
         available_providers = []
 
-        # Add providers in priority order if they're available and healthy
-        for provider_type in PRIORITY_ORDER:
+        # Add providers in configured priority order if they're available and healthy
+        for provider_type in priority_order:
             if provider_type in self.providers:
                 health = self.provider_health.get(provider_type)
                 if health and health.is_healthy:
                     available_providers.append(provider_type)
 
-        # Add any remaining healthy providers not in explicit order
+        # Add any remaining healthy providers not in configured order
         for provider_type, health in self.provider_health.items():
             if provider_type not in available_providers and health.is_healthy:
                 available_providers.append(provider_type)
 
         # Add unhealthy providers as last resort (if not rate limited)
-        for provider_type in PRIORITY_ORDER:
+        for provider_type in priority_order:
             if provider_type in self.providers and provider_type not in available_providers:
                 health = self.provider_health.get(provider_type)
                 if health and not health.rate_limited:
                     available_providers.append(provider_type)
 
+        # Log final provider order for debugging
+        self.logger.debug(f"Final provider priority order: {[p.value for p in available_providers]}")
+        
         return available_providers
     
     def _config_to_provider_type(self, config_provider: ConfigAIProvider) -> Optional[AIProviderType]:
@@ -656,10 +731,165 @@ class AIManager:
             health.rate_limit_reset = None
             self.logger.info(f"Reset health status for {provider_type.value}")
     
+    def get_quality_metrics(self) -> Dict[str, Any]:
+        """Get current quality metrics and trust validation status.
+
+        Returns:
+            Dictionary containing quality metrics and monitoring data
+        """
+        metrics = self.quality_monitor.get_current_metrics()
+        recent_alerts = self.quality_monitor.get_recent_alerts(hours=24)
+
+        return {
+            'quality_metrics': {
+                'validation_success_rate': metrics.validation_success_rate,
+                'ai_processing_success_rate': metrics.ai_processing_success_rate,
+                'silent_failure_rate': metrics.silent_failure_rate,
+                'keyword_fallback_rate': metrics.keyword_fallback_rate,
+                'overall_quality_score': metrics.overall_quality_score,
+                'avg_score_difference': metrics.avg_score_difference,
+                'avg_processing_time_ms': metrics.avg_processing_time_ms
+            },
+            'provider_metrics': {
+                'success_rates': dict(metrics.provider_success_rate),
+                'avg_confidence': dict(metrics.provider_avg_confidence),
+                'consistency': dict(metrics.provider_consistency)
+            },
+            'alerts': {
+                'total_count': len(recent_alerts),
+                'recent_alerts': [
+                    {
+                        'level': alert.level.value,
+                        'message': alert.message,
+                        'component': alert.component,
+                        'timestamp': alert.timestamp.isoformat()
+                    }
+                    for alert in recent_alerts[-5:]  # Last 5 alerts
+                ]
+            }
+        }
+
+    def generate_quality_report(self) -> Dict[str, Any]:
+        """Generate comprehensive quality and trust report.
+
+        Returns:
+            Comprehensive quality report
+        """
+        return self.quality_monitor.generate_quality_report()
+
+    def _validate_and_log_provider_configuration(self) -> None:
+        """Validate and log provider priority configuration."""
+        try:
+            # Validate priority configuration
+            validation_errors = self.settings.ai.validate_priority_configuration()
+            if validation_errors:
+                for error in validation_errors:
+                    self.logger.error(f"Provider priority configuration error: {error}")
+                raise ValueError(f"Invalid provider priority configuration: {'; '.join(validation_errors)}")
+            
+            # Log provider priority configuration
+            profile = self.settings.ai.provider_priority_profile
+            priority_order = self.settings.ai.get_provider_priority_order()
+            
+            self.logger.info(f"Provider priority profile: {profile.value}")
+            self.logger.info(f"Configured provider order: {[p.value for p in priority_order]}")
+            
+            # Log available vs configured providers
+            available_providers = set(self.providers.keys())
+            configured_provider_types = set()
+            
+            for config_provider in priority_order:
+                provider_type = self._config_to_provider_type(config_provider)
+                if provider_type:
+                    configured_provider_types.add(provider_type)
+            
+            # Warn about configured but unavailable providers
+            unavailable_configured = configured_provider_types - available_providers
+            if unavailable_configured:
+                self.logger.warning(
+                    f"Configured providers not available (missing API keys): "
+                    f"{[p.value for p in unavailable_configured]}"
+                )
+            
+            # Info about available but not configured providers
+            available_not_configured = available_providers - configured_provider_types
+            if available_not_configured:
+                self.logger.info(
+                    f"Available providers not in priority order (will be added as fallback): "
+                    f"{[p.value for p in available_not_configured]}"
+                )
+            
+            # Log final effective priority order
+            effective_order = self._get_provider_priority_order()
+            self.logger.info(f"Effective provider priority order: {[p.value for p in effective_order]}")
+            
+        except Exception as e:
+            self.logger.error(f"Error validating provider configuration: {e}")
+            raise
+
+    def log_provider_selection_decision(self, selected_provider: AIProviderType, 
+                                      attempt_number: int, total_attempts: int) -> None:
+        """Log provider selection decision for debugging.
+        
+        Args:
+            selected_provider: Provider type that was selected
+            attempt_number: Current attempt number (1-based)
+            total_attempts: Total number of attempts available
+        """
+        health = self.provider_health.get(selected_provider)
+        health_status = "healthy" if health and health.is_healthy else "unhealthy"
+        
+        self.logger.debug(
+            f"Provider selection: attempt {attempt_number}/{total_attempts}, "
+            f"selected {selected_provider.value} ({health_status})"
+        )
+        
+        if health:
+            self.logger.debug(
+                f"Provider {selected_provider.value} stats: "
+                f"errors={health.error_count}, consecutive_errors={health.consecutive_errors}, "
+                f"rate_limited={health.rate_limited}"
+            )
+
+    def generate_provider_priority_report(self) -> Dict[str, Any]:
+        """Generate comprehensive provider priority report for monitoring.
+        
+        Returns:
+            Dictionary with provider priority analysis
+        """
+        profile = self.settings.ai.provider_priority_profile
+        configured_order = self.settings.ai.get_provider_priority_order()
+        effective_order = self._get_provider_priority_order()
+        
+        # Analyze provider availability
+        provider_analysis = {}
+        for config_provider in configured_order:
+            provider_type = self._config_to_provider_type(config_provider)
+            if provider_type:
+                health = self.provider_health.get(provider_type)
+                provider_analysis[config_provider.value] = {
+                    'available': provider_type in self.providers,
+                    'healthy': health.is_healthy if health else False,
+                    'position_configured': configured_order.index(config_provider) + 1,
+                    'position_effective': effective_order.index(provider_type) + 1 if provider_type in effective_order else None,
+                    'error_count': health.error_count if health else 0,
+                    'rate_limited': health.rate_limited if health else False
+                }
+        
+        return {
+            'priority_profile': profile.value,
+            'configured_order': [p.value for p in configured_order],
+            'effective_order': [p.value for p in effective_order],
+            'provider_analysis': provider_analysis,
+            'validation_errors': self.settings.ai.validate_priority_configuration(),
+            'total_available_providers': len(self.providers),
+            'total_healthy_providers': sum(1 for h in self.provider_health.values() if h.is_healthy)
+        }
+
     async def shutdown(self) -> None:
         """Cleanup resources and close provider connections."""
         self.logger.info("Shutting down AI Manager...")
-        
+
         # Close async clients if needed
         for provider in self.providers.values():
             if hasattr(provider, 'async_client') and hasattr(provider.async_client, 'close'):
@@ -667,7 +897,7 @@ class AIManager:
                     await provider.async_client.aclose()
                 except Exception as e:
                     self.logger.warning(f"Error closing provider client: {e}")
-        
+
         self.logger.info("AI Manager shutdown complete")
     
     def __str__(self) -> str:

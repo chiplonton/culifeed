@@ -154,7 +154,7 @@ class TopicCommandHandler:
                 name=validated_name,
                 keywords=validated_keywords,
                 exclude_keywords=[],
-                confidence_threshold=0.7,  # Default threshold
+                confidence_threshold=0.6,  # Default threshold (Phase 1)
                 active=True
             )
 

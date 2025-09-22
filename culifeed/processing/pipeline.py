@@ -30,7 +30,7 @@ from ..ai.providers.base import AIResult
 
 @dataclass
 class PipelineResult:
-    """Result of complete pipeline processing."""
+    """Result of complete pipeline processing with comprehensive metrics."""
     channel_id: str
     total_feeds_processed: int
     successful_feed_fetches: int
@@ -44,6 +44,26 @@ class PipelineResult:
     topic_matches: Dict[str, int]
     errors: List[str]
     
+    # Enhanced AI Processing Metrics
+    ai_requests_sent: int = 0
+    ai_requests_successful: int = 0
+    ai_requests_failed: int = 0
+    ai_provider_breakdown: Dict[str, Dict[str, int]] = None  # provider -> {requests, successes, failures}
+    ai_processing_time_seconds: float = 0.0
+    articles_processed_by_ai: int = 0
+    articles_ai_relevant: int = 0  # Articles with relevance score >= threshold
+    
+    # Delivery Metrics
+    articles_sent_to_telegram: int = 0
+    telegram_messages_sent: int = 0
+    telegram_delivery_failures: int = 0
+    delivery_time_seconds: float = 0.0
+    
+    def __post_init__(self):
+        """Initialize nested dictionaries if None."""
+        if self.ai_provider_breakdown is None:
+            self.ai_provider_breakdown = {}
+    
     @property
     def efficiency_metrics(self) -> Dict[str, float]:
         """Calculate efficiency metrics."""
@@ -52,8 +72,26 @@ class PipelineResult:
             'deduplication_rate': self.deduplication_stats.deduplication_rate if self.deduplication_stats else 0.0,
             'prefilter_reduction': ((self.unique_articles_after_dedup - self.articles_passed_prefilter) / self.unique_articles_after_dedup) * 100 if self.unique_articles_after_dedup > 0 else 0.0,
             'overall_reduction': ((self.total_articles_fetched - self.articles_ready_for_ai) / self.total_articles_fetched) * 100 if self.total_articles_fetched > 0 else 0.0,
-            'articles_per_second': self.total_articles_fetched / self.processing_time_seconds if self.processing_time_seconds > 0 else 0.0
+            'articles_per_second': self.total_articles_fetched / self.processing_time_seconds if self.processing_time_seconds > 0 else 0.0,
+            'ai_success_rate': (self.ai_requests_successful / self.ai_requests_sent) * 100 if self.ai_requests_sent > 0 else 0.0,
+            'ai_relevance_rate': (self.articles_ai_relevant / self.articles_processed_by_ai) * 100 if self.articles_processed_by_ai > 0 else 0.0,
+            'delivery_success_rate': ((self.articles_sent_to_telegram - self.telegram_delivery_failures) / self.articles_sent_to_telegram) * 100 if self.articles_sent_to_telegram > 0 else 100.0
         }
+    
+    @property 
+    def ai_provider_summary(self) -> Dict[str, str]:
+        """Get AI provider usage summary."""
+        if not self.ai_provider_breakdown:
+            return {}
+        
+        summary = {}
+        for provider, stats in self.ai_provider_breakdown.items():
+            requests = stats.get('requests', 0)
+            successes = stats.get('successes', 0)
+            success_rate = (successes / requests * 100) if requests > 0 else 0
+            summary[provider] = f"{requests} requests ({success_rate:.1f}% success)"
+        
+        return summary
 
 
 class ProcessingPipeline:
@@ -69,17 +107,24 @@ class ProcessingPipeline:
         self.settings = get_settings()
         self.logger = get_logger_for_component("pipeline")
         
-        # Initialize components
+        # Initialize components with settings
         self.feed_fetcher = FeedFetcher(
             max_concurrent=self.settings.processing.parallel_feeds,
             timeout=self.settings.limits.request_timeout
         )
         self.feed_manager = FeedManager(db_connection)
-        self.article_processor = ArticleProcessor(db_connection)
-        self.pre_filter = PreFilterEngine()
+        self.article_processor = ArticleProcessor(db_connection, settings=self.settings)  # Pass settings
+        self.pre_filter = PreFilterEngine(self.settings)  # Pass settings for configurable thresholds
         
         # AI Integration - Initialize AI Manager
         self.ai_manager = AIManager()
+        
+        # Smart Processing - Initialize Smart Keyword Analyzer
+        if self.settings.smart_processing.enabled:
+            from .smart_analyzer import SmartKeywordAnalyzer
+            self.smart_analyzer = SmartKeywordAnalyzer()
+        else:
+            self.smart_analyzer = None
     
     async def process_channel(self, chat_id: str, max_articles_per_topic: int = None) -> PipelineResult:
         """Process all feeds for a single channel.
@@ -183,7 +228,7 @@ class ProcessingPipeline:
             # Step 9: AI Analysis and Processing
             # Only pass filter results that correspond to articles that passed pre-filter
             passed_filter_results = [r for r in filter_results if r.passed_filter]
-            ai_processed_articles = await self._ai_analysis_and_processing(
+            ai_processed_articles, ai_metrics = await self._ai_analysis_and_processing(
                 passed_articles, passed_filter_results, topics, max_articles_per_topic
             )
             
@@ -193,7 +238,13 @@ class ProcessingPipeline:
             result = self._create_result(
                 chat_id, len(feeds), successful_fetches, len(all_articles),
                 len(unique_articles), len(passed_articles), len(ai_processed_articles),
-                total_processing_time, fetch_duration, dedup_stats, topic_matches, errors
+                total_processing_time, fetch_duration, dedup_stats, topic_matches, errors,
+                ai_requests=ai_metrics["ai_requests_sent"],
+                ai_successes=ai_metrics["ai_requests_successful"],
+                ai_failures=ai_metrics["ai_requests_failed"],
+                ai_provider_breakdown=ai_metrics["ai_provider_breakdown"],
+                articles_processed_by_ai=len(ai_processed_articles),
+                articles_ai_relevant=ai_metrics["articles_ai_relevant"]  # NEW: Pass the count
             )
             
             self.logger.info(
@@ -270,26 +321,34 @@ class ProcessingPipeline:
             return topics
     
     async def _ai_analysis_and_processing(self, articles: List[Article], filter_results: List[FilterResult],
-                                       topics: List[Topic], max_per_topic: int) -> List[Article]:
+                                       topics: List[Topic], max_per_topic: int) -> tuple[List[Article], dict]:
         """Perform AI analysis and processing on filtered articles.
-        
+
         Args:
             articles: List of articles to analyze
             filter_results: Pre-filtering results for articles
             topics: Topics for relevance analysis
             max_per_topic: Maximum articles per topic
-            
+
         Returns:
-            List of articles that passed AI analysis
+            Tuple of (processed articles, AI metrics dict including articles_ai_relevant count)
         """
         if not articles or not topics:
             self.logger.info("No articles or topics for AI analysis")
-            return []
+            return [], {"ai_requests_sent": 0, "ai_requests_successful": 0, "ai_requests_failed": 0, "ai_provider_breakdown": {}, "articles_ai_relevant": 0}
         
         self.logger.info(f"Starting AI analysis for {len(articles)} articles across {len(topics)} topics")
         
         ai_processed_articles = []
         processing_results = []  # Track article-topic relationships
+
+        # Initialize AI metrics tracking
+        ai_requests_sent = 0
+        ai_requests_successful = 0
+        ai_requests_failed = 0
+        ai_provider_breakdown = {}  # Format: {provider: {'requests': X, 'successes': Y, 'failures': Z}}
+        articles_ai_relevant = 0  # Count articles that meet AI relevance threshold
+        smart_routing_stats = {"ai_skipped": 0, "confident_relevant": 0, "confident_irrelevant": 0}
         
         # Group articles by topic for processing
         for topic in topics:
@@ -308,19 +367,76 @@ class ProcessingPipeline:
             # Limit articles per topic and sort by publication date
             topic_articles = sorted(topic_articles, key=lambda a: a.published_at, reverse=True)[:max_per_topic]
             
-            # Process articles with AI
-            selected = [(article, None) for article in topic_articles]  # Simplified selection
-            
-            for article, _ in selected:
+            # Process articles with smart routing
+            for article in topic_articles:
                 try:
-                    # AI relevance analysis
+                    # Smart routing: check if we can skip AI processing
+                    should_skip_ai, routing_reason, smart_result = await self._smart_routing_decision(article, topic)
+                    
+                    if should_skip_ai and smart_result:
+                        # Handle confident routing decisions
+                        if smart_result.routing_decision == "high_confidence":
+                            smart_routing_stats["confident_relevant"] += 1
+                            smart_routing_stats["ai_skipped"] += 1
+                            
+                            # Treat as relevant article
+                            articles_ai_relevant += 1
+                            article.ai_relevance_score = smart_result.relevance_score
+                            article.ai_confidence = smart_result.confidence_level
+                            article.ai_provider = "smart_routing_confident"
+                            article.ai_reasoning = f"Smart routing (confident): {routing_reason}"
+                            
+                            if article not in ai_processed_articles:
+                                ai_processed_articles.append(article)
+                            
+                            processing_results.append({
+                                'article_id': article.id,
+                                'chat_id': topic.chat_id,
+                                'topic_name': topic_name,
+                                'ai_relevance_score': smart_result.relevance_score,
+                                'confidence_score': smart_result.confidence_level,
+                                'summary': None  # No AI summary for smart routing
+                            })
+                            
+                            self.logger.debug(f"Smart routing ACCEPT: {article.title[:50]}... (score={smart_result.relevance_score:.3f})")
+                            continue
+                            
+                        elif smart_result.routing_decision == "low_confidence":
+                            smart_routing_stats["confident_irrelevant"] += 1
+                            smart_routing_stats["ai_skipped"] += 1
+                            
+                            # Skip article (confident it's irrelevant)
+                            self.logger.debug(f"Smart routing REJECT: {article.title[:50]}... (score={smart_result.relevance_score:.3f})")
+                            continue
+                    
+                    # Standard AI processing for uncertain cases
+                    ai_requests_sent += 1
                     ai_result = await self.ai_manager.analyze_relevance(article, topic)
+
+                    # Track AI provider breakdown
+                    if ai_result.provider:
+                        if ai_result.provider not in ai_provider_breakdown:
+                            ai_provider_breakdown[ai_result.provider] = {'requests': 0, 'successes': 0, 'failures': 0}
+                        ai_provider_breakdown[ai_result.provider]['requests'] += 1
+
+                    # Track success/failure
+                    if ai_result.success:
+                        ai_requests_successful += 1
+                        if ai_result.provider:
+                            ai_provider_breakdown[ai_result.provider]['successes'] += 1
+                    else:
+                        ai_requests_failed += 1
+                        if ai_result.provider:
+                            ai_provider_breakdown[ai_result.provider]['failures'] += 1
                     
                     if ai_result.success and ai_result.relevance_score >= self.settings.processing.ai_relevance_threshold:
+                        # Article met main AI relevance threshold
+                        articles_ai_relevant += 1
+                        
                         # Generate summary if relevance is high enough
                         if ai_result.relevance_score >= self.settings.processing.ai_summary_threshold:
                             try:
-                                summary_result = await self.ai_manager.generate_summary(article)  # Pass article object, not article.content
+                                summary_result = await self.ai_manager.generate_summary(article)
                                 if summary_result and hasattr(summary_result, 'summary') and summary_result.summary:
                                     article.summary = summary_result.summary
                                 else:
@@ -334,7 +450,7 @@ class ProcessingPipeline:
                         article.ai_confidence = ai_result.confidence
                         article.ai_provider = ai_result.provider
                         article.ai_reasoning = ai_result.reasoning
-                        
+
                         # Add to processed articles if not already added
                         if article not in ai_processed_articles:
                             ai_processed_articles.append(article)
@@ -342,7 +458,7 @@ class ProcessingPipeline:
                         # Record the topic-article relationship
                         processing_results.append({
                             'article_id': article.id,
-                            'chat_id': topic.chat_id,  # Get chat_id from topic
+                            'chat_id': topic.chat_id,
                             'topic_name': topic_name,
                             'ai_relevance_score': ai_result.relevance_score,
                             'confidence_score': ai_result.confidence,
@@ -363,13 +479,50 @@ class ProcessingPipeline:
                         
                 except Exception as e:
                     self.logger.error(f"AI processing failed for article {article.id}: {e}")
-                    # Include article without AI analysis if AI fails
-                    if article not in ai_processed_articles:
-                        ai_processed_articles.append(article)
+
+                    # Use hybrid fallback: keyword-based analysis
+                    try:
+                        hybrid_result = self.ai_manager._keyword_fallback_analysis(article, topic)
+                        
+                        if hybrid_result.success:
+                            article.ai_relevance_score = hybrid_result.relevance_score
+                            article.ai_confidence = min(hybrid_result.confidence, self.settings.filtering.fallback_confidence_cap)
+                            article.ai_provider = "keyword_backup"
+                            article.ai_reasoning = f"Hybrid fallback: {hybrid_result.reasoning}"
+
+                            # Only include if it meets a minimum threshold
+                            if hybrid_result.relevance_score >= self.settings.filtering.fallback_relevance_threshold:
+                                if article not in ai_processed_articles:
+                                    ai_processed_articles.append(article)
+
+                                processing_results.append({
+                                    'article_id': article.id,
+                                    'chat_id': topic.chat_id,
+                                    'topic_name': topic_name,
+                                    'ai_relevance_score': hybrid_result.relevance_score,
+                                    'confidence_score': article.ai_confidence,
+                                    'summary': None
+                                })
+
+                                self.logger.info(
+                                    f"Used keyword fallback for article '{article.title}': "
+                                    f"score={hybrid_result.relevance_score:.3f}, "
+                                    f"confidence={article.ai_confidence:.3f}"
+                                )
+                            else:
+                                self.logger.debug(
+                                    f"Keyword fallback score too low for article '{article.title}': "
+                                    f"{hybrid_result.relevance_score:.3f} < {self.settings.filtering.fallback_relevance_threshold}"
+                                )
+                        else:
+                            self.logger.warning(f"Keyword fallback also failed for article {article.id}")
+
+                    except Exception as fallback_error:
+                        self.logger.error(f"Hybrid fallback failed for article {article.id}: {fallback_error}")
             
             self.logger.info(
-                f"AI processed {len([a for a, _ in selected if any(proc.id == a.id for proc in ai_processed_articles)])} "
-                f"out of {len(selected)} articles for topic '{topic_name}'"
+                f"AI processed {len([a for a in ai_processed_articles if any(proc['article_id'] == a.id for proc in processing_results)])} "
+                f"articles for topic '{topic_name}'"
             )
         
         # Store processed articles and their topic relationships in database
@@ -380,8 +533,55 @@ class ProcessingPipeline:
             self._store_processing_results(processing_results)
         
         self.logger.info(f"AI analysis complete: {len(ai_processed_articles)} articles ready for delivery")
+        self.logger.info(f"AI metrics: {ai_requests_sent} requests sent, {ai_requests_successful} successful, {ai_requests_failed} failed")
+        self.logger.info(f"Smart routing: {smart_routing_stats['ai_skipped']} AI requests skipped ({smart_routing_stats['confident_relevant']} relevant, {smart_routing_stats['confident_irrelevant']} irrelevant)")
+        self.logger.info(f"Articles meeting AI relevance threshold (>= {self.settings.processing.ai_relevance_threshold}): {articles_ai_relevant}")
+
+        # Prepare AI metrics with routing stats
+        ai_metrics = {
+            "ai_requests_sent": ai_requests_sent,
+            "ai_requests_successful": ai_requests_successful,
+            "ai_requests_failed": ai_requests_failed,
+            "ai_provider_breakdown": ai_provider_breakdown,
+            "articles_ai_relevant": articles_ai_relevant,
+            "smart_routing_stats": smart_routing_stats
+        }
+
+        return ai_processed_articles, ai_metrics
+
+    async def _smart_routing_decision(self, article: Article, topic: Topic) -> tuple[bool, str, Optional]:
+        """Make smart routing decision to potentially skip AI processing.
         
-        return ai_processed_articles
+        Args:
+            article: Article to analyze
+            topic: Topic for relevance analysis
+            
+        Returns:
+            Tuple of (should_skip_ai, reasoning, smart_result)
+        """
+        # Skip smart routing if disabled
+        if not self.settings.smart_processing.enabled or not self.smart_analyzer:
+            return False, "Smart processing disabled", None
+        
+        try:
+            # Perform smart keyword analysis
+            smart_result = self.smart_analyzer.analyze_article_confidence(article, topic)
+            
+            # Check routing decision
+            if smart_result.routing_decision == "high_confidence":
+                if smart_result.relevance_score >= self.settings.smart_processing.definitely_relevant_threshold:
+                    return True, f"High confidence relevant (score={smart_result.relevance_score:.3f}, confidence={smart_result.confidence_level:.3f})", smart_result
+            
+            elif smart_result.routing_decision == "low_confidence":
+                if smart_result.relevance_score <= self.settings.smart_processing.definitely_irrelevant_threshold:
+                    return True, f"High confidence irrelevant (score={smart_result.relevance_score:.3f}, confidence={smart_result.confidence_level:.3f})", smart_result
+            
+            # Default to uncertain - needs AI processing
+            return False, f"Uncertain case (score={smart_result.relevance_score:.3f}, confidence={smart_result.confidence_level:.3f})", smart_result
+            
+        except Exception as e:
+            self.logger.warning(f"Smart routing analysis failed for article {article.id}: {e}")
+            return False, "Smart routing failed - fallback to AI", None
     
     def _store_articles_for_processing(self, articles: List[Article]) -> None:
         """Store articles in database with AI analysis results.
@@ -504,8 +704,11 @@ class ProcessingPipeline:
                       total_articles: int, unique_articles: int, passed_filter: int,
                       ai_ready: int, processing_time: float, fetch_time: float,
                       dedup_stats: Optional[DeduplicationStats], topic_matches: Dict[str, int],
-                      errors: List[str]) -> PipelineResult:
-        """Create pipeline result object."""
+                      errors: List[str], ai_requests: int = 0, ai_successes: int = 0,
+                      ai_failures: int = 0, ai_provider_breakdown: Dict = None,
+                      ai_processing_time: float = 0.0, articles_processed_by_ai: int = 0,
+                      articles_ai_relevant: int = 0) -> PipelineResult:
+        """Create pipeline result object with comprehensive metrics."""
         return PipelineResult(
             channel_id=chat_id,
             total_feeds_processed=total_feeds,
@@ -518,7 +721,14 @@ class ProcessingPipeline:
             feed_fetch_time_seconds=fetch_time,
             deduplication_stats=dedup_stats,
             topic_matches=topic_matches,
-            errors=errors
+            errors=errors,
+            ai_requests_sent=ai_requests,
+            ai_requests_successful=ai_successes,
+            ai_requests_failed=ai_failures,
+            ai_provider_breakdown=ai_provider_breakdown or {},
+            ai_processing_time_seconds=ai_processing_time,
+            articles_processed_by_ai=articles_processed_by_ai,
+            articles_ai_relevant=articles_ai_relevant
         )
     
     async def process_multiple_channels(self, chat_ids: List[str]) -> List[PipelineResult]:
