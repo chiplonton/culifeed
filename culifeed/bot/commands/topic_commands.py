@@ -63,18 +63,16 @@ class TopicCommandHandler:
                 )
             else:
                 message = "📝 *Your Topics:*\n\n"
-                for i, topic in enumerate(topics, 1):
-                    keywords_preview = ", ".join(topic.keywords[:3])
-                    if len(topic.keywords) > 3:
-                        keywords_preview += f" (+{len(topic.keywords) - 3} more)"
+                for topic in topics:
+                    # Show all keywords with clear visual separation
+                    keywords_display = ", ".join(topic.keywords)
 
                     message += (
-                        f"*{i}. {topic.name}*\n"
-                        f"Keywords: {keywords_preview}\n"
-                        f"Threshold: {topic.confidence_threshold:.1f}\n\n"
+                        f"🎯 **{topic.name}**\n"
+                        f"    → {keywords_display}\n\n"
                     )
 
-                message += f"*Total: {len(topics)} topics*\n\n"
+                message += f"*{len(topics)} topics configured*\n\n"
                 message += "💡 Use `/addtopic` to add more or `/removetopic` to remove."
 
             await update.message.reply_text(message, parse_mode='Markdown')

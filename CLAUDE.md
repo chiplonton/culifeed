@@ -255,12 +255,37 @@ class RedditSource(BaseContentSource):
 
 ### 🎯 Code Quality Requirements
 
+**Development Environment Setup:**
+- **Virtual Environment**: Always activate venv before running any code, tests, or debugging
+  ```bash
+  source venv/bin/activate
+  ```
+
 **Before Committing:**
 1. **Type Safety**: All functions have type hints
 2. **Error Handling**: All external operations have error handling
 3. **Logging**: Use structured logging with context
 4. **Documentation**: Public APIs have docstrings
 5. **Testing**: New features have unit and integration tests
+
+**Code Validation Workflow:**
+When fixing or updating any logic code, follow this validation sequence:
+
+1. **Service Validation**: Test affected services
+   ```bash
+   # Test bot service changes
+   source venv/bin/activate && python run_bot.py
+
+   # Test scheduler service changes
+   source venv/bin/activate && python run_daily_scheduler.py
+   ```
+
+2. **Full Test Suite**: Verify no regressions
+   ```bash
+   source venv/bin/activate && python -m pytest
+   ```
+
+3. **Integration Testing**: Ensure end-to-end functionality works as expected
 
 **Performance Standards:**
 - RSS feed processing: <5 seconds per feed

@@ -433,6 +433,9 @@ class TelegramBotService:
         # Register handlers synchronously
         self._register_handlers_sync()
         
+        # Set up bot commands menu
+        self._setup_bot_commands_sync()
+        
         # Start polling - this manages the entire lifecycle
         self.application.run_polling(
             allowed_updates=Update.ALL_TYPES,
@@ -474,6 +477,37 @@ class TelegramBotService:
         )
 
         self.logger.info("All command handlers registered")
+
+    def _setup_bot_commands_sync(self) -> None:
+        """Set up the bot commands menu synchronously."""
+        commands = [
+            BotCommand("start", "Initialize bot for this channel"),
+            BotCommand("help", "Show available commands and usage"),
+            BotCommand("status", "Show channel status and statistics"),
+            BotCommand("topics", "List all topics for this channel"),
+            BotCommand("addtopic", "Add a new topic with keywords"),
+            BotCommand("removetopic", "Remove a topic"),
+            BotCommand("edittopic", "Edit existing topic"),
+            BotCommand("feeds", "List all RSS feeds for this channel"),
+            BotCommand("addfeed", "Add a new RSS feed"),
+            BotCommand("removefeed", "Remove RSS feed"),
+            BotCommand("testfeed", "Test feed connectivity"),
+            BotCommand("preview", "Preview latest content"),
+            BotCommand("settings", "Show channel settings"),
+        ]
+
+        try:
+            # Use the application's initialization hook to set commands
+            async def setup_commands(application):
+                await self.bot.set_my_commands(commands)
+                self._commands = commands
+                self.logger.info(f"Set {len(commands)} bot commands")
+            
+            # Add to post_init hook instead of running immediately
+            self.application.post_init = setup_commands
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to set bot commands: {e}")
 
     async def send_message(self, chat_id: str, message: str, parse_mode: str = 'Markdown') -> bool:
         """Send a message to a specific chat.
