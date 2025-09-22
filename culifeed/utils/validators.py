@@ -256,9 +256,54 @@ class ContentValidator:
                 error_code=ErrorCode.VALIDATION_INVALID_FORMAT,
                 field_name="topic_name"
             )
-        
+
         return name
-    
+
+    @classmethod
+    def validate_topic_name_for_ai_generation(cls, name: str) -> str:
+        """Validate topic name specifically for AI keyword generation.
+
+        Requires more context (5-20 words) to generate better keywords.
+
+        Args:
+            name: Topic name to validate for AI generation
+
+        Returns:
+            Sanitized topic name
+
+        Raises:
+            ValidationError: If name doesn't have enough context for AI
+        """
+        # First do standard validation
+        validated_name = cls.validate_topic_name(name)
+
+        # Then check word count for AI context
+        words = validated_name.split()
+        word_count = len(words)
+
+        if word_count < 5:
+            raise ValidationError(
+                f"Topic needs at least 5 words for better AI keyword generation (you provided {word_count})\n\n"
+                f"💡 Examples:\n"
+                f"• TikTok software engineering architecture practices\n"
+                f"• Machine learning applications in healthcare systems\n"
+                f"• DevOps kubernetes deployment best practices\n"
+                f"• JavaScript frontend development frameworks comparison\n\n"
+                f"Or use manual keywords: `/addtopic {validated_name}, keyword1, keyword2, keyword3`",
+                error_code=ErrorCode.VALIDATION_OUT_OF_RANGE,
+                field_name="topic_name"
+            )
+
+        if word_count > 20:
+            raise ValidationError(
+                f"Topic is too long ({word_count} words). Please keep it under 20 words for clarity\n\n"
+                f"💡 Try focusing on the specific aspect you're most interested in",
+                error_code=ErrorCode.VALIDATION_OUT_OF_RANGE,
+                field_name="topic_name"
+            )
+
+        return validated_name
+
     @classmethod
     def validate_keywords(cls, keywords: List[str]) -> List[str]:
         """Validate and sanitize keyword list.

@@ -63,18 +63,16 @@ class TopicCommandHandler:
                 )
             else:
                 message = "📝 *Your Topics:*\n\n"
-                for i, topic in enumerate(topics, 1):
-                    keywords_preview = ", ".join(topic.keywords[:3])
-                    if len(topic.keywords) > 3:
-                        keywords_preview += f" (+{len(topic.keywords) - 3} more)"
+                for topic in topics:
+                    # Show all keywords with clear visual separation
+                    keywords_display = ", ".join(topic.keywords)
 
                     message += (
-                        f"*{i}. {topic.name}*\n"
-                        f"Keywords: {keywords_preview}\n"
-                        f"Threshold: {topic.confidence_threshold:.1f}\n\n"
+                        f"🎯 *{topic.name}*\n"
+                        f"    → {keywords_display}\n\n"
                     )
 
-                message += f"*Total: {len(topics)} topics*\n\n"
+                message += f"*{len(topics)} topics configured*\n\n"
                 message += "💡 Use `/addtopic` to add more or `/removetopic` to remove."
 
             await update.message.reply_text(message, parse_mode='Markdown')
@@ -119,14 +117,23 @@ class TopicCommandHandler:
 
             # Handle keywords - either provided or AI-generated
             if keywords is None:
-                # AI keyword generation
-                progress_msg = await update.message.reply_text(f"🤖 Generating keywords for '{validated_name}'...")
+                # AI keyword generation - validate topic has enough context
                 try:
-                    validated_keywords = await self._generate_keywords_with_ai(validated_name, chat_id)
+                    ai_validated_name = ContentValidator.validate_topic_name_for_ai_generation(validated_name)
+                except ValidationError as e:
+                    await update.message.reply_text(
+                        f"❌ *AI keyword generation needs more context:*\n\n{str(e).split('] ')[1]}",
+                        parse_mode='Markdown'
+                    )
+                    return
+
+                progress_msg = await update.message.reply_text(f"🤖 Generating keywords for '{ai_validated_name}'...")
+                try:
+                    validated_keywords = await self._generate_keywords_with_ai(ai_validated_name, chat_id)
                     await progress_msg.edit_text(f"✅ Generated keywords: {', '.join(validated_keywords)}")
                 except Exception as e:
                     await progress_msg.edit_text(f"⚠️ Using fallback keywords")
-                    validated_keywords = [validated_name.lower()]
+                    validated_keywords = [ai_validated_name.lower()]
             else:
                 # Manual keywords provided
                 try:
