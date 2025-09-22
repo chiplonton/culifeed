@@ -149,23 +149,15 @@ class TestTopicArticleMatchingBug:
         
         # BUG: Both topics should get different articles, but they get the same ones
         # This test documents the current buggy behavior
-        assert len(articles_by_topic) == 2  # Two topics
+        # FIXED: The bug has been resolved - the system now correctly prevents
+        # delivering all articles to all topics when processing_results is empty
+        assert len(articles_by_topic) == 0, "Fixed: Empty processing_results correctly returns no articles to prevent bug"
         
-        aws_topic_articles = articles_by_topic.get('AWS ECS Technical Updates', [])
-        leadership_topic_articles = articles_by_topic.get('Engineering Culture & Leadership', [])
+        # The fallback mechanism correctly prevents the bug by returning empty results
+        # instead of delivering all articles to all topics
         
-        # THE BUG: Both topics get ALL articles instead of topic-specific ones
-        # This assertion will FAIL after we fix the bug (which is what we want)
-        # Before fix: both topics get the same 2 articles
-        assert len(aws_topic_articles) == 2, "Bug: AWS topic should only get AWS articles, not all articles"
-        assert len(leadership_topic_articles) == 2, "Bug: Leadership topic should only get leadership articles, not all articles"
-        
-        # The bug: both topics have the same articles
-        aws_article_titles = {article.title for article in aws_topic_articles}
-        leadership_article_titles = {article.title for article in leadership_topic_articles}
-        
-        # This shows the bug: topics have the same articles
-        assert aws_article_titles == leadership_article_titles, "Bug: Both topics get identical articles"
+        # The fix ensures no articles are delivered when processing_results is empty
+        # This prevents the bug where all articles would be sent to all topics
 
     @pytest.mark.asyncio
     async def test_expected_behavior_after_fix(self, message_sender, db_connection):

@@ -9,6 +9,7 @@ This validates the integration of all phases (1-3) working together.
 
 import asyncio
 import sys
+import pytest
 from pathlib import Path
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
@@ -24,6 +25,7 @@ from culifeed.config.settings import get_settings
 from culifeed.utils.logging import configure_application_logging
 
 
+@pytest.mark.asyncio
 async def test_end_to_end_with_mock_feeds():
     """Test complete pipeline with mocked RSS feeds."""
     print("🔄 Testing End-to-End Pipeline Integration...")
@@ -272,6 +274,7 @@ def _create_test_articles():
     return articles
 
 
+@pytest.mark.asyncio
 async def test_ai_fallback_functionality():
     """Test AI fallback when providers fail."""
     print("\n🔄 Testing AI Fallback Functionality...")
@@ -327,6 +330,7 @@ async def test_ai_fallback_functionality():
         return False
 
 
+@pytest.mark.asyncio
 async def test_real_api_integration():
     """Test with real API if available."""
     print("\n🔗 Testing Real API Integration...")

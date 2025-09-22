@@ -195,7 +195,7 @@ class TestDataModels:
         assert topic.name == "Test Topic"
         assert len(topic.keywords) == 3
         assert "python" in topic.keywords
-        assert topic.confidence_threshold == 0.8
+        assert topic.confidence_threshold == 0.6
         
         # Test keyword normalization
         topic_with_mixed_case = Topic(

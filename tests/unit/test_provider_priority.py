@@ -165,8 +165,18 @@ class TestAIManagerProviderPriority:
         mock_ai_settings.provider_priority_profile = ProviderPriority.COST_OPTIMIZED
         mock_settings.ai = mock_ai_settings
         
+        # Add missing mock attributes that AIManager needs
+        mock_processing = Mock()
+        mock_processing.ai_provider = AIProvider.GROQ
+        mock_settings.processing = mock_processing
+        
+        mock_limits = Mock()
+        mock_limits.fallback_to_keywords = True
+        mock_settings.limits = mock_limits
+        
         # Create AI manager with mocked providers
-        with patch.object(AIManager, '_initialize_providers'):
+        with patch.object(AIManager, '_initialize_providers'), \
+             patch.object(AIManager, '_validate_and_log_provider_configuration'):
             ai_manager = AIManager(settings=mock_settings)
             
             # Mock providers and health
@@ -207,8 +217,18 @@ class TestAIManagerProviderPriority:
         mock_ai_settings.provider_priority_profile = ProviderPriority.QUALITY_FIRST
         mock_settings.ai = mock_ai_settings
         
+        # Add missing mock attributes that AIManager needs
+        mock_processing = Mock()
+        mock_processing.ai_provider = AIProvider.OPENAI
+        mock_settings.processing = mock_processing
+        
+        mock_limits = Mock()
+        mock_limits.fallback_to_keywords = True
+        mock_settings.limits = mock_limits
+        
         # Create AI manager with mocked providers
-        with patch.object(AIManager, '_initialize_providers'):
+        with patch.object(AIManager, '_initialize_providers'), \
+             patch.object(AIManager, '_validate_and_log_provider_configuration'):
             ai_manager = AIManager(settings=mock_settings)
             
             # Mock providers and health (OpenAI and Gemini available)
@@ -246,8 +266,18 @@ class TestAIManagerProviderPriority:
         mock_ai_settings.custom_provider_order = custom_order
         mock_settings.ai = mock_ai_settings
         
+        # Add missing mock attributes that AIManager needs
+        mock_processing = Mock()
+        mock_processing.ai_provider = AIProvider.OPENAI
+        mock_settings.processing = mock_processing
+        
+        mock_limits = Mock()
+        mock_limits.fallback_to_keywords = True
+        mock_settings.limits = mock_limits
+        
         # Create AI manager with mocked providers
-        with patch.object(AIManager, '_initialize_providers'):
+        with patch.object(AIManager, '_initialize_providers'), \
+             patch.object(AIManager, '_validate_and_log_provider_configuration'):
             ai_manager = AIManager(settings=mock_settings)
             
             # Mock only the custom providers as available
@@ -281,7 +311,17 @@ class TestAIManagerProviderPriority:
         mock_ai_settings.provider_priority_profile = ProviderPriority.COST_OPTIMIZED
         mock_settings.ai = mock_ai_settings
         
-        with patch.object(AIManager, '_initialize_providers'):
+        # Add missing mock attributes that AIManager needs
+        mock_processing = Mock()
+        mock_processing.ai_provider = AIProvider.GROQ
+        mock_settings.processing = mock_processing
+        
+        mock_limits = Mock()
+        mock_limits.fallback_to_keywords = True
+        mock_settings.limits = mock_limits
+        
+        with patch.object(AIManager, '_initialize_providers'), \
+             patch.object(AIManager, '_validate_and_log_provider_configuration'):
             ai_manager = AIManager(settings=mock_settings)
             
             # Mock providers with different health states

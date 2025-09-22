@@ -246,6 +246,7 @@ Provide a concise, informative summary that captures the essence of the article.
                 relevance_score=1.0,  # Summary always succeeds if we get here
                 confidence=0.9,       # High confidence for summarization
                 summary=summary,
+                content=summary,      # Also set content for general access
                 tokens_used=getattr(response.usage, 'total_tokens', None) if hasattr(response, 'usage') else None
             )
 
@@ -383,11 +384,11 @@ Respond with JSON only:
 
         except (json.JSONDecodeError, ValueError, KeyError) as e:
             self.logger.warning(f"Failed to parse OpenRouter response: {e}")
-            # Return conservative fallback - reject unparseable responses
+            # Return neutral fallback values when response is unparseable
             return {
-                "relevance_score": 0.0,  # Reject when AI response fails
-                "confidence": 0.0,
-                "reasoning": "Unable to parse AI response, rejecting for safety"
+                "relevance_score": 0.5,  # Neutral score when AI response fails
+                "confidence": 0.3,       # Low confidence for fallback
+                "reasoning": "Fallback response due to unparseable AI output"
             }
 
     def _can_make_request(self) -> bool:

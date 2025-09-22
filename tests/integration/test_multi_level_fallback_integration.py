@@ -9,6 +9,7 @@ Verifies that our implementation is working end-to-end.
 
 import sys
 import os
+import pytest
 from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch
 
@@ -21,6 +22,7 @@ os.environ['CULIFEED_AI__GEMINI_API_KEY'] = 'test-gemini-key'
 os.environ['CULIFEED_AI__GROQ_API_KEY'] = 'test-groq-key'
 
 
+@pytest.mark.asyncio
 async def test_complete_integration():
     """Test complete multi-level fallback integration."""
     print("🔬 Complete Multi-Level Fallback Integration Test")
