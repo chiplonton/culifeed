@@ -118,6 +118,13 @@ class ProcessingPipeline:
         
         # AI Integration - Initialize AI Manager
         self.ai_manager = AIManager()
+        
+        # Smart Processing - Initialize Smart Keyword Analyzer
+        if self.settings.smart_processing.enabled:
+            from .smart_analyzer import SmartKeywordAnalyzer
+            self.smart_analyzer = SmartKeywordAnalyzer()
+        else:
+            self.smart_analyzer = None
     
     async def process_channel(self, chat_id: str, max_articles_per_topic: int = None) -> PipelineResult:
         """Process all feeds for a single channel.
@@ -340,7 +347,8 @@ class ProcessingPipeline:
         ai_requests_successful = 0
         ai_requests_failed = 0
         ai_provider_breakdown = {}  # Format: {provider: {'requests': X, 'successes': Y, 'failures': Z}}
-        articles_ai_relevant = 0  # NEW: Count articles that meet AI relevance threshold
+        articles_ai_relevant = 0  # Count articles that meet AI relevance threshold
+        smart_routing_stats = {"ai_skipped": 0, "confident_relevant": 0, "confident_irrelevant": 0}
         
         # Group articles by topic for processing
         for topic in topics:
@@ -359,16 +367,51 @@ class ProcessingPipeline:
             # Limit articles per topic and sort by publication date
             topic_articles = sorted(topic_articles, key=lambda a: a.published_at, reverse=True)[:max_per_topic]
             
-            # Process articles with AI
-            selected = [(article, None) for article in topic_articles]  # Simplified selection
-            
-            for article, _ in selected:
+            # Process articles with smart routing
+            for article in topic_articles:
                 try:
-                    # AI relevance analysis
-                    ai_requests_sent += 1  # Count the AI request
-                    ai_result = await self.ai_manager.analyze_relevance(
-                        article, topic
-                    )
+                    # Smart routing: check if we can skip AI processing
+                    should_skip_ai, routing_reason, smart_result = await self._smart_routing_decision(article, topic)
+                    
+                    if should_skip_ai and smart_result:
+                        # Handle confident routing decisions
+                        if smart_result.routing_decision == "high_confidence":
+                            smart_routing_stats["confident_relevant"] += 1
+                            smart_routing_stats["ai_skipped"] += 1
+                            
+                            # Treat as relevant article
+                            articles_ai_relevant += 1
+                            article.ai_relevance_score = smart_result.relevance_score
+                            article.ai_confidence = smart_result.confidence_level
+                            article.ai_provider = "smart_routing_confident"
+                            article.ai_reasoning = f"Smart routing (confident): {routing_reason}"
+                            
+                            if article not in ai_processed_articles:
+                                ai_processed_articles.append(article)
+                            
+                            processing_results.append({
+                                'article_id': article.id,
+                                'chat_id': topic.chat_id,
+                                'topic_name': topic_name,
+                                'ai_relevance_score': smart_result.relevance_score,
+                                'confidence_score': smart_result.confidence_level,
+                                'summary': None  # No AI summary for smart routing
+                            })
+                            
+                            self.logger.debug(f"Smart routing ACCEPT: {article.title[:50]}... (score={smart_result.relevance_score:.3f})")
+                            continue
+                            
+                        elif smart_result.routing_decision == "low_confidence":
+                            smart_routing_stats["confident_irrelevant"] += 1
+                            smart_routing_stats["ai_skipped"] += 1
+                            
+                            # Skip article (confident it's irrelevant)
+                            self.logger.debug(f"Smart routing REJECT: {article.title[:50]}... (score={smart_result.relevance_score:.3f})")
+                            continue
+                    
+                    # Standard AI processing for uncertain cases
+                    ai_requests_sent += 1
+                    ai_result = await self.ai_manager.analyze_relevance(article, topic)
 
                     # Track AI provider breakdown
                     if ai_result.provider:
@@ -387,13 +430,13 @@ class ProcessingPipeline:
                             ai_provider_breakdown[ai_result.provider]['failures'] += 1
                     
                     if ai_result.success and ai_result.relevance_score >= self.settings.processing.ai_relevance_threshold:
-                        # INCREMENT: Article met main AI relevance threshold
+                        # Article met main AI relevance threshold
                         articles_ai_relevant += 1
                         
                         # Generate summary if relevance is high enough
                         if ai_result.relevance_score >= self.settings.processing.ai_summary_threshold:
                             try:
-                                summary_result = await self.ai_manager.generate_summary(article)  # Pass article object, not article.content
+                                summary_result = await self.ai_manager.generate_summary(article)
                                 if summary_result and hasattr(summary_result, 'summary') and summary_result.summary:
                                     article.summary = summary_result.summary
                                 else:
@@ -408,7 +451,6 @@ class ProcessingPipeline:
                         article.ai_provider = ai_result.provider
                         article.ai_reasoning = ai_result.reasoning
 
-                        
                         # Add to processed articles if not already added
                         if article not in ai_processed_articles:
                             ai_processed_articles.append(article)
@@ -416,7 +458,7 @@ class ProcessingPipeline:
                         # Record the topic-article relationship
                         processing_results.append({
                             'article_id': article.id,
-                            'chat_id': topic.chat_id,  # Get chat_id from topic
+                            'chat_id': topic.chat_id,
                             'topic_name': topic_name,
                             'ai_relevance_score': ai_result.relevance_score,
                             'confidence_score': ai_result.confidence,
@@ -440,52 +482,47 @@ class ProcessingPipeline:
 
                     # Use hybrid fallback: keyword-based analysis
                     try:
-                        # Use keyword fallback analysis
                         hybrid_result = self.ai_manager._keyword_fallback_analysis(article, topic)
                         
                         if hybrid_result.success:
-                                # Mark as hybrid processing and adjust confidence
-                                article.ai_relevance_score = hybrid_result.relevance_score
-                                article.ai_confidence = min(hybrid_result.confidence, self.settings.filtering.fallback_confidence_cap)  # Cap from settings
-                                article.ai_provider = "keyword_backup"
-                                article.ai_reasoning = f"Hybrid fallback: {hybrid_result.reasoning}"
+                            article.ai_relevance_score = hybrid_result.relevance_score
+                            article.ai_confidence = min(hybrid_result.confidence, self.settings.filtering.fallback_confidence_cap)
+                            article.ai_provider = "keyword_backup"
+                            article.ai_reasoning = f"Hybrid fallback: {hybrid_result.reasoning}"
 
-                                # Only include if it meets a minimum threshold
-                                if hybrid_result.relevance_score >= self.settings.filtering.fallback_relevance_threshold:  # Lower threshold for fallback
-                                    # NOTE: Fallback articles don't count toward articles_ai_relevant (they didn't meet main AI threshold)
-                                    if article not in ai_processed_articles:
-                                        ai_processed_articles.append(article)
+                            # Only include if it meets a minimum threshold
+                            if hybrid_result.relevance_score >= self.settings.filtering.fallback_relevance_threshold:
+                                if article not in ai_processed_articles:
+                                    ai_processed_articles.append(article)
 
-                                    # Record fallback processing result
-                                    processing_results.append({
-                                        'article_id': article.id,
-                                        'chat_id': topic.chat_id,
-                                        'topic_name': topic_name,
-                                        'ai_relevance_score': hybrid_result.relevance_score,
-                                        'confidence_score': article.ai_confidence,
-                                        'summary': None  # No summary for fallback
-                                    })
+                                processing_results.append({
+                                    'article_id': article.id,
+                                    'chat_id': topic.chat_id,
+                                    'topic_name': topic_name,
+                                    'ai_relevance_score': hybrid_result.relevance_score,
+                                    'confidence_score': article.ai_confidence,
+                                    'summary': None
+                                })
 
-                                    self.logger.info(
-                                        f"Used keyword fallback for article '{article.title}': "
-                                        f"score={hybrid_result.relevance_score:.3f}, "
-                                        f"confidence={article.ai_confidence:.3f}"
-                                    )
-                                else:
-                                    self.logger.debug(
-                                        f"Keyword fallback score too low for article '{article.title}': "
-                                        f"{hybrid_result.relevance_score:.3f} < {self.settings.filtering.fallback_relevance_threshold}"
-                                    )
+                                self.logger.info(
+                                    f"Used keyword fallback for article '{article.title}': "
+                                    f"score={hybrid_result.relevance_score:.3f}, "
+                                    f"confidence={article.ai_confidence:.3f}"
+                                )
+                            else:
+                                self.logger.debug(
+                                    f"Keyword fallback score too low for article '{article.title}': "
+                                    f"{hybrid_result.relevance_score:.3f} < {self.settings.filtering.fallback_relevance_threshold}"
+                                )
                         else:
                             self.logger.warning(f"Keyword fallback also failed for article {article.id}")
 
                     except Exception as fallback_error:
                         self.logger.error(f"Hybrid fallback failed for article {article.id}: {fallback_error}")
-                        # Article is not included - better than silent failure
             
             self.logger.info(
-                f"AI processed {len([a for a, _ in selected if any(proc.id == a.id for proc in ai_processed_articles)])} "
-                f"out of {len(selected)} articles for topic '{topic_name}'"
+                f"AI processed {len([a for a in ai_processed_articles if any(proc['article_id'] == a.id for proc in processing_results)])} "
+                f"articles for topic '{topic_name}'"
             )
         
         # Store processed articles and their topic relationships in database
@@ -497,18 +534,54 @@ class ProcessingPipeline:
         
         self.logger.info(f"AI analysis complete: {len(ai_processed_articles)} articles ready for delivery")
         self.logger.info(f"AI metrics: {ai_requests_sent} requests sent, {ai_requests_successful} successful, {ai_requests_failed} failed")
+        self.logger.info(f"Smart routing: {smart_routing_stats['ai_skipped']} AI requests skipped ({smart_routing_stats['confident_relevant']} relevant, {smart_routing_stats['confident_irrelevant']} irrelevant)")
         self.logger.info(f"Articles meeting AI relevance threshold (>= {self.settings.processing.ai_relevance_threshold}): {articles_ai_relevant}")
 
-        # Prepare AI metrics with articles_ai_relevant count
+        # Prepare AI metrics with routing stats
         ai_metrics = {
             "ai_requests_sent": ai_requests_sent,
             "ai_requests_successful": ai_requests_successful,
             "ai_requests_failed": ai_requests_failed,
             "ai_provider_breakdown": ai_provider_breakdown,
-            "articles_ai_relevant": articles_ai_relevant  # NEW: Include the count
+            "articles_ai_relevant": articles_ai_relevant,
+            "smart_routing_stats": smart_routing_stats
         }
 
         return ai_processed_articles, ai_metrics
+
+    async def _smart_routing_decision(self, article: Article, topic: Topic) -> tuple[bool, str, Optional]:
+        """Make smart routing decision to potentially skip AI processing.
+        
+        Args:
+            article: Article to analyze
+            topic: Topic for relevance analysis
+            
+        Returns:
+            Tuple of (should_skip_ai, reasoning, smart_result)
+        """
+        # Skip smart routing if disabled
+        if not self.settings.smart_processing.enabled or not self.smart_analyzer:
+            return False, "Smart processing disabled", None
+        
+        try:
+            # Perform smart keyword analysis
+            smart_result = self.smart_analyzer.analyze_article_confidence(article, topic)
+            
+            # Check routing decision
+            if smart_result.routing_decision == "high_confidence":
+                if smart_result.relevance_score >= self.settings.smart_processing.definitely_relevant_threshold:
+                    return True, f"High confidence relevant (score={smart_result.relevance_score:.3f}, confidence={smart_result.confidence_level:.3f})", smart_result
+            
+            elif smart_result.routing_decision == "low_confidence":
+                if smart_result.relevance_score <= self.settings.smart_processing.definitely_irrelevant_threshold:
+                    return True, f"High confidence irrelevant (score={smart_result.relevance_score:.3f}, confidence={smart_result.confidence_level:.3f})", smart_result
+            
+            # Default to uncertain - needs AI processing
+            return False, f"Uncertain case (score={smart_result.relevance_score:.3f}, confidence={smart_result.confidence_level:.3f})", smart_result
+            
+        except Exception as e:
+            self.logger.warning(f"Smart routing analysis failed for article {article.id}: {e}")
+            return False, "Smart routing failed - fallback to AI", None
     
     def _store_articles_for_processing(self, articles: List[Article]) -> None:
         """Store articles in database with AI analysis results.

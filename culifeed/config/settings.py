@@ -168,6 +168,72 @@ class FilteringSettings(BaseModel):
         description="Weight of URL quality in overall article quality score"
     )
 
+class SmartProcessingSettings(BaseModel):
+    """Smart processing configuration for confidence-based routing."""
+    
+    enabled: bool = Field(
+        default=True,
+        description="Enable smart pre-filtering with confidence scoring"
+    )
+    
+    # Confidence-based routing thresholds
+    high_confidence_threshold: float = Field(
+        default=0.8,
+        ge=0.0,
+        le=1.0,
+        description="Route directly without AI if confidence >= this value"
+    )
+    
+    low_confidence_threshold: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="Route to keyword fallback if confidence >= this and score low"
+    )
+    
+    # Routing decision thresholds
+    definitely_relevant_threshold: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Score threshold for 'definitely relevant' routing"
+    )
+    
+    definitely_irrelevant_threshold: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Score threshold for 'definitely irrelevant' routing"
+    )
+    
+    # Performance and caching
+    similarity_cache_enabled: bool = Field(
+        default=True,
+        description="Enable basic content similarity caching"
+    )
+    
+    max_cache_entries: int = Field(
+        default=1000,
+        ge=100,
+        le=10000,
+        description="Maximum entries in similarity cache"
+    )
+    
+    # Cost optimization settings
+    ai_skip_rate_target: float = Field(
+        default=0.4,
+        ge=0.0,
+        le=0.8,
+        description="Target AI request reduction through smart routing (40%)"
+    )
+    
+    quality_assurance_sample_rate: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=1.0,
+        description="Sample rate for quality validation of skipped articles (10%)"
+    )
+
 class DeliveryQualitySettings(BaseModel):
     """Message delivery quality thresholds and formatting configuration."""
     
@@ -434,6 +500,7 @@ class CuliFeedSettings(BaseSettings):
     # Advanced configuration sections
     provider_quality: ProviderQualitySettings = Field(default_factory=ProviderQualitySettings)
     filtering: FilteringSettings = Field(default_factory=FilteringSettings)
+    smart_processing: SmartProcessingSettings = Field(default_factory=SmartProcessingSettings)
     delivery_quality: DeliveryQualitySettings = Field(default_factory=DeliveryQualitySettings)
     
     # Application metadata
