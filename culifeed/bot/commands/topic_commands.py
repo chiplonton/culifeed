@@ -68,7 +68,7 @@ class TopicCommandHandler:
                     keywords_display = ", ".join(topic.keywords)
 
                     message += (
-                        f"🎯 **{topic.name}**\n"
+                        f"🎯 *{topic.name}*\n"
                         f"    → {keywords_display}\n\n"
                     )
 
