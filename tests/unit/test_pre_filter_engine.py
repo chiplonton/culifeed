@@ -36,7 +36,10 @@ class TestPreFilterEngine:
     @pytest.fixture
     def engine(self):
         """Create PreFilterEngine with default settings."""
-        return PreFilterEngine(min_relevance_threshold=0.1)
+        from culifeed.config.settings import get_settings
+        settings = get_settings()
+        settings.filtering.min_relevance_threshold = 0.1
+        return PreFilterEngine(settings=settings)
 
     @pytest.fixture
     def sample_articles(self):
@@ -151,7 +154,10 @@ class TestPreFilterEngine:
 
     def test_engine_custom_threshold(self):
         """Test PreFilterEngine with custom relevance threshold."""
-        engine = PreFilterEngine(min_relevance_threshold=0.3)
+        from culifeed.config.settings import get_settings
+        settings = get_settings()
+        settings.filtering.min_relevance_threshold = 0.3
+        engine = PreFilterEngine(settings=settings)
         assert engine.min_relevance_threshold == 0.3
 
     def test_extract_text_features_basic(self, engine, sample_articles):
@@ -374,7 +380,10 @@ class TestPreFilterEngine:
     def test_filter_article_below_threshold(self, engine, sample_articles, sample_topics):
         """Test article filtering with scores below threshold."""
         # Use high threshold to test failure case
-        high_threshold_engine = PreFilterEngine(min_relevance_threshold=0.9)
+        from culifeed.config.settings import get_settings
+        settings = get_settings()
+        settings.filtering.min_relevance_threshold = 0.9
+        high_threshold_engine = PreFilterEngine(settings=settings)
         
         web_article = sample_articles[1]  # Web article
         web_topic = next(t for t in sample_topics if t.name == "Web Development")
@@ -598,8 +607,13 @@ class TestPreFilterEngine:
         )
         
         # Test with different thresholds
-        low_threshold_engine = PreFilterEngine(min_relevance_threshold=0.01)
-        high_threshold_engine = PreFilterEngine(min_relevance_threshold=0.99)
+        from culifeed.config.settings import get_settings
+        low_settings = get_settings()
+        low_settings.filtering.min_relevance_threshold = 0.01
+        low_threshold_engine = PreFilterEngine(settings=low_settings)
+        high_settings = get_settings()
+        high_settings.filtering.min_relevance_threshold = 0.99
+        high_threshold_engine = PreFilterEngine(settings=high_settings)
         
         low_result = low_threshold_engine.filter_article(article, [topic])
         high_result = high_threshold_engine.filter_article(article, [topic])

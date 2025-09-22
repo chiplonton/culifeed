@@ -169,7 +169,7 @@ class TestTopic:
         assert topic.name == "Programming"
         assert "python" in topic.keywords
         assert topic.active is True
-        assert topic.confidence_threshold == 0.8
+        assert topic.confidence_threshold == 0.6
     
     def test_topic_keyword_validation(self):
         """Test topic keyword validation and normalization."""

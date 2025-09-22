@@ -103,7 +103,14 @@ class TestEndToEndIntegration:
             'active': True
         }
         
-        # Add channels to database
+        # Clear existing data first to ensure clean state
+        with db_manager.get_connection() as conn:
+            conn.execute("DELETE FROM channels")
+            conn.execute("DELETE FROM feeds") 
+            conn.execute("DELETE FROM topics")
+            conn.commit()
+        
+        # Add channels to database  
         with db_manager.get_connection() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO channels (chat_id, chat_title, chat_type, active, created_at)
@@ -236,8 +243,18 @@ class TestEndToEndIntegration:
         # Mock the pipeline.process_channel method to avoid AI API calls
         from unittest.mock import AsyncMock, MagicMock
         mock_pipeline_result = MagicMock()
-        mock_pipeline_result.successful_feed_fetches = 1
-        mock_pipeline_result.articles_ready_for_ai = 2
+        
+        # Set up proper numeric attributes matching what scheduler expects
+        mock_pipeline_result.total_feeds_processed = 1
+        mock_pipeline_result.total_articles_fetched = 5
+        mock_pipeline_result.unique_articles_after_dedup = 3
+        mock_pipeline_result.articles_passed_prefilter = 2
+        mock_pipeline_result.ai_requests_sent = 2
+        mock_pipeline_result.ai_requests_successful = 2
+        mock_pipeline_result.articles_ai_relevant = 1
+        mock_pipeline_result.articles_sent_to_telegram = 1
+        mock_pipeline_result.telegram_messages_sent = 1
+        mock_pipeline_result.ai_provider_breakdown = {}
         mock_pipeline_result.errors = []
         
         scheduler.pipeline.process_channel = AsyncMock(return_value=mock_pipeline_result)
@@ -249,7 +266,9 @@ class TestEndToEndIntegration:
         assert 'channels_processed' in result
         assert 'duration_seconds' in result
         assert 'execution_id' in result
-        assert 'performance_metrics' in result
+        assert 'pipeline_metrics' in result
+        assert 'ai_metrics' in result
+        assert 'delivery_metrics' in result
         
         # In dry run mode, should process channels but not send messages
         if result['channels_processed'] > 0:
@@ -320,16 +339,27 @@ class TestEndToEndIntegration:
         from unittest.mock import AsyncMock, MagicMock
         
         mock_pipeline_result = MagicMock()
-        mock_pipeline_result.successful_feed_fetches = 1
-        mock_pipeline_result.articles_ready_for_ai = 0
+        # Set up proper numeric attributes matching what scheduler expects
+        mock_pipeline_result.total_feeds_processed = 1
+        mock_pipeline_result.total_articles_fetched = 0
+        mock_pipeline_result.unique_articles_after_dedup = 0
+        mock_pipeline_result.articles_passed_prefilter = 0
+        mock_pipeline_result.ai_requests_sent = 0
+        mock_pipeline_result.ai_requests_successful = 0
+        mock_pipeline_result.articles_ai_relevant = 0
+        mock_pipeline_result.articles_sent_to_telegram = 0
+        mock_pipeline_result.telegram_messages_sent = 0
+        mock_pipeline_result.ai_provider_breakdown = {}
         mock_pipeline_result.errors = []
         
         scheduler.pipeline.process_channel = AsyncMock(return_value=mock_pipeline_result)
         
         result = await scheduler.run_daily_processing(dry_run=True)
         
-        # Should include performance metrics
-        assert 'performance_metrics' in result
+        # Should include pipeline, AI, and delivery metrics
+        assert 'pipeline_metrics' in result
+        assert 'ai_metrics' in result
+        assert 'delivery_metrics' in result
         assert 'duration_seconds' in result
         assert result['duration_seconds'] >= 0
 
@@ -406,6 +436,10 @@ async def test_complete_workflow_simulation():
     This test runs the entire system in isolation.
     """
     
+    # Small delay to ensure any previous database connections are closed
+    import time
+    time.sleep(0.1)
+    
     # Create temporary database
     temp_dir = tempfile.mkdtemp()
     db_path = Path(temp_dir) / "workflow_test.db"
@@ -428,14 +462,25 @@ async def test_complete_workflow_simulation():
             settings.get_ai_fallback_providers.return_value = ["gemini"]
             mock_settings.return_value = settings
             
-            # Create minimal test data
-            db_manager = get_db_manager(str(db_path))
-            with db_manager.get_connection() as conn:
+            # Create minimal test data using direct sqlite connection
+            # to avoid any global state conflicts with db_manager
+            import sqlite3
+            try:
+                conn = sqlite3.connect(str(db_path))
                 conn.execute("""
                     INSERT INTO channels (chat_id, chat_title, chat_type, active, created_at)
                     VALUES (?, ?, ?, ?, ?)
                 """, ('workflow_test', 'Workflow Test Channel', 'group', True, datetime.now()))
                 conn.commit()
+                conn.close()
+            except Exception as e:
+                print(f"Database error: {e}")
+                if 'conn' in locals():
+                    conn.close()
+                raise
+            
+            # Now use db_manager for the scheduler
+            db_manager = get_db_manager(str(db_path))
             
             # Create scheduler and mock external dependencies  
             scheduler = DailyScheduler(settings)
@@ -443,8 +488,17 @@ async def test_complete_workflow_simulation():
             # Mock the pipeline to avoid external API calls
             from unittest.mock import AsyncMock, MagicMock
             mock_result = MagicMock()
-            mock_result.successful_feed_fetches = 1
-            mock_result.articles_ready_for_ai = 0
+            # Set up proper numeric attributes matching what scheduler expects
+            mock_result.total_feeds_processed = 1
+            mock_result.total_articles_fetched = 0
+            mock_result.unique_articles_after_dedup = 0
+            mock_result.articles_passed_prefilter = 0
+            mock_result.ai_requests_sent = 0
+            mock_result.ai_requests_successful = 0
+            mock_result.articles_ai_relevant = 0
+            mock_result.articles_sent_to_telegram = 0
+            mock_result.telegram_messages_sent = 0
+            mock_result.ai_provider_breakdown = {}
             mock_result.errors = []
             
             scheduler.pipeline.process_channel = AsyncMock(return_value=mock_result)

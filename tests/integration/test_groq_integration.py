@@ -10,6 +10,7 @@ This script tests provider initialization, connection, relevance analysis, and s
 import os
 import sys
 import asyncio
+import pytest
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -83,6 +84,7 @@ IRRELEVANT_ARTICLE = Article(
 )
 
 
+@pytest.mark.asyncio
 async def test_groq_connection():
     """Test basic Groq API connection."""
     print("🔌 Testing Groq API Connection...")
@@ -114,6 +116,7 @@ async def test_groq_connection():
         return False
 
 
+@pytest.mark.asyncio
 async def test_relevance_analysis():
     """Test article relevance analysis."""
     print("\n🤔 Testing Relevance Analysis...")
@@ -165,6 +168,7 @@ async def test_relevance_analysis():
         return False
 
 
+@pytest.mark.asyncio
 async def test_summarization():
     """Test article summarization."""
     print("\n📝 Testing Summarization...")
@@ -201,6 +205,7 @@ async def test_summarization():
         return False
 
 
+@pytest.mark.asyncio
 async def test_ai_manager():
     """Test AI Manager with multiple scenarios."""
     print("\n🎛️ Testing AI Manager...")
@@ -252,6 +257,7 @@ async def test_ai_manager():
         return False
 
 
+@pytest.mark.asyncio
 async def test_rate_limiting():
     """Test rate limiting behavior."""
     print("\n⏱️ Testing Rate Limiting...")
