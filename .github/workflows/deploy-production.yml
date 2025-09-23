@@ -1,0 +1,134 @@
+name: Deploy to Production
+
+on:
+  workflow_run:
+    workflows: ["Build and Push Docker Image"]
+    types: [completed]
+    branches: [main]
+
+env:
+  COMPOSE_FILE: "docker-compose.yml"
+  PROJECT_NAME: "culifeed"
+
+jobs:
+  deploy:
+    name: Deploy to Production Server
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+        chmod 600 ~/.ssh/deploy_key
+
+    - name: Deploy to Production
+      env:
+        DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      run: |
+        ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new ${DEPLOY_USER}@${DEPLOY_HOST} << 'DEPLOY_SCRIPT'
+        set -e
+
+        echo "🚀 Starting CuliFeed deployment..."
+        echo "📅 Deployment started at: $(date)"
+        
+        # Navigate to deployment directory
+        cd /opt/culifeed || { echo "❌ Deployment directory not found"; exit 1; }
+        
+        # Check if compose file exists
+        if [ ! -f docker-compose.yml ]; then
+            echo "❌ docker-compose.yml not found in /opt/culifeed"
+            exit 1
+        fi
+
+        # Pull latest images
+        echo "📥 Pulling latest images..."
+        docker-compose pull
+        
+        # Check if image changed
+        echo "🔍 Checking for image changes..."
+        NEW_DIGEST=$(docker inspect ghcr.io/chiplonton/culifeed:latest-alpine --format='{{.Id}}' 2>/dev/null || echo "new")
+        OLD_DIGEST=$(docker-compose images -q culifeed 2>/dev/null || echo "old")
+        
+        if [ "$NEW_DIGEST" = "$OLD_DIGEST" ]; then
+            echo "✅ No image changes detected, but proceeding with deployment"
+        else
+            echo "🆕 New image detected, proceeding with deployment"
+        fi
+
+        # Stop services gracefully
+        echo "⏹️  Stopping current services..."
+        docker-compose down --timeout 30
+
+        # Start services with new images
+        echo "🔄 Starting updated services..."
+        docker-compose up -d
+
+        # Wait for services to be ready
+        echo "⏳ Waiting for services to start..."
+        sleep 15
+
+        # Health check
+        echo "🩺 Performing health check..."
+        HEALTH_CHECK_PASSED=false
+        for i in {1..6}; do
+            if docker-compose ps | grep -q "Up"; then
+                echo "✅ Services are running (attempt $i/6)"
+                
+                # Additional health check - try to connect to the service
+                if docker-compose exec -T culifeed python -c "import sys; sys.exit(0)" 2>/dev/null; then
+                    echo "✅ Service health check passed"
+                    HEALTH_CHECK_PASSED=true
+                    break
+                else
+                    echo "⚠️  Service not fully ready yet (attempt $i/6)"
+                fi
+            else
+                echo "⚠️  Services not ready yet (attempt $i/6)"
+            fi
+            
+            if [ $i -lt 6 ]; then
+                sleep 10
+            fi
+        done
+
+        if [ "$HEALTH_CHECK_PASSED" = false ]; then
+            echo "❌ Health check failed after 60 seconds"
+            echo "📊 Service status:"
+            docker-compose ps
+            echo "📋 Service logs:"
+            docker-compose logs --tail=20
+            exit 1
+        fi
+
+        # Show final status
+        echo "📊 Final deployment status:"
+        docker-compose ps
+        echo "✅ Deployment completed successfully at: $(date)"
+        echo "🎉 CuliFeed is now running with the latest image!"
+        
+        DEPLOY_SCRIPT
+
+    - name: Cleanup SSH
+      if: always()
+      run: |
+        rm -f ~/.ssh/deploy_key
+
+    - name: Deployment Success Notification
+      if: success()
+      run: |
+        echo "✅ Production deployment completed successfully"
+        echo "🚀 CuliFeed is now running with the latest image"
+        echo "⏰ Deployed at: $(date -u)"
+
+    - name: Deployment Failed Notification  
+      if: failure()
+      run: |
+        echo "❌ Production deployment failed"
+        echo "⏰ Failed at: $(date -u)"
+        echo "🔧 Please check server logs and service status"
