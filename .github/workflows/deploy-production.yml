@@ -5,10 +5,26 @@ on:
     workflows: ["Build and Push Docker Image"]
     types: [completed]
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Docker image tag to deploy (e.g., latest, latest-alpine, v1.2.0, v1.2.0-alpine)'
+        required: true
+        default: 'latest-alpine'
+        type: string
+      variant:
+        description: 'Image variant to deploy'
+        required: true
+        default: 'alpine'
+        type: choice
+        options:
+        - debian
+        - alpine
 
 env:
   COMPOSE_FILE: "docker-compose.yml"
   PROJECT_NAME: "culifeed"
+  DEPLOY_IMAGE_TAG: ${{ inputs.image_tag || 'latest-alpine' }}
 
 jobs:
   deploy:
@@ -30,12 +46,17 @@ jobs:
       env:
         DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        DEPLOY_IMAGE_TAG: ${{ env.DEPLOY_IMAGE_TAG }}
       run: |
-        ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new ${DEPLOY_USER}@${DEPLOY_HOST} << 'DEPLOY_SCRIPT'
+        ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new ${DEPLOY_USER}@${DEPLOY_HOST} << DEPLOY_SCRIPT
         set -e
+
+        # Set image tag for deployment
+        export CULIFEED_IMAGE_TAG=${DEPLOY_IMAGE_TAG}
 
         echo "🚀 Starting CuliFeed deployment..."
         echo "📅 Deployment started at: $(date)"
+        echo "📦 Using image tag: \${CULIFEED_IMAGE_TAG}"
         
         # Navigate to deployment directory
         cd /opt/culifeed || { echo "❌ Deployment directory not found"; exit 1; }
@@ -46,13 +67,13 @@ jobs:
             exit 1
         fi
 
-        # Pull latest images
-        echo "📥 Pulling latest images..."
+        # Pull specified image
+        echo "📥 Pulling image: ghcr.io/chiplonton/culifeed:\${CULIFEED_IMAGE_TAG}..."
         docker-compose pull
         
         # Check if image changed
         echo "🔍 Checking for image changes..."
-        NEW_DIGEST=$(docker inspect ghcr.io/chiplonton/culifeed:latest-alpine --format='{{.Id}}' 2>/dev/null || echo "new")
+        NEW_DIGEST=$(docker inspect ghcr.io/chiplonton/culifeed:\${CULIFEED_IMAGE_TAG} --format='{{.Id}}' 2>/dev/null || echo "new")
         OLD_DIGEST=$(docker-compose images -q culifeed 2>/dev/null || echo "old")
         
         if [ "$NEW_DIGEST" = "$OLD_DIGEST" ]; then
