@@ -271,14 +271,13 @@ class TopicCommandHandler:
                 await self._send_edit_topic_help(update)
                 return
 
-            # Parse arguments (first arg is topic name, rest are keywords)
-            if len(args) < 2:
+            # Parse arguments using smart topic name matching
+            parsed_data = self._parse_edit_topic_args(args, chat_id)
+            if not parsed_data:
                 await self._send_edit_topic_help(update)
                 return
 
-            topic_name = args[0]
-            keywords_text = " ".join(args[1:])
-            keywords = [k.strip() for k in keywords_text.split(",") if k.strip()]
+            topic_name, keywords = parsed_data
 
             if not keywords:
                 await self._send_edit_topic_help(update)
@@ -377,6 +376,54 @@ class TopicCommandHandler:
         topic_name = full_text.strip()
         return topic_name, None  # None indicates AI generation
 
+    def _parse_edit_topic_args(self, args: List[str], chat_id: str) -> Optional[tuple[str, List[str]]]:
+        """Parse arguments for /edittopic command with smart topic name matching.
+
+        Args:
+            args: Command arguments
+            chat_id: Chat ID to look up existing topics
+
+        Returns:
+            Tuple of (topic_name, keywords) or None if invalid.
+        """
+        if len(args) < 2:
+            return None
+
+        # Join all args to analyze the full input
+        full_text = " ".join(args)
+
+        # edittopic requires comma-separated keywords (manual mode only)
+        if "," not in full_text:
+            return None
+
+        # Split on FIRST comma only to separate topic area from keywords
+        first_comma_index = full_text.index(",")
+        potential_topic_part = full_text[:first_comma_index].strip()
+        keywords_part = full_text[first_comma_index + 1:].strip()
+
+        if not potential_topic_part or not keywords_part:
+            return None
+
+        # Try to find existing topic by removing words from end of potential topic part
+        words = potential_topic_part.split()
+        for i in range(len(words), 0, -1):
+            candidate_topic = " ".join(words[:i])
+            if self.topic_repo.get_topic_by_name(chat_id, candidate_topic):
+                # Found a matching topic! Calculate remaining keywords
+                remaining_words = words[i:]  # Words that weren't part of topic name
+                if remaining_words:
+                    # Add remaining words to keywords
+                    full_keywords = " ".join(remaining_words) + ", " + keywords_part
+                else:
+                    full_keywords = keywords_part
+                
+                keywords = [k.strip() for k in full_keywords.split(",") if k.strip()]
+                return candidate_topic, keywords
+
+        # No existing topic found - return first part as topic name for error message
+        keywords = [k.strip() for k in keywords_part.split(",") if k.strip()]
+        return potential_topic_part, keywords
+
     async def _send_add_topic_help(self, update: Update) -> None:
         """Send help message for /addtopic command."""
         help_message = (
@@ -399,11 +446,12 @@ class TopicCommandHandler:
         """Send help message for /edittopic command."""
         help_message = (
             "❓ *How to edit a topic:*\n\n"
-            "*Format:* `/edittopic <topic_name> <new_keywords>`\n\n"
+            "*Format:* `/edittopic <topic_name> <keyword1, keyword2, keyword3>`\n\n"
             "*Examples:*\n"
             "• `/edittopic AI machine learning, deep learning, neural networks`\n"
+            "• `/edittopic TikTok software engineers programming, coding, app development`\n"
             "• `/edittopic Cloud kubernetes, docker, containers`\n\n"
-            "*Note:* This replaces all keywords for the topic.\n"
+            "*Important:* Keywords must be separated by commas.\n"
             "Use `/topics` to see your current topics."
         )
         await update.message.reply_text(help_message, parse_mode='Markdown')
