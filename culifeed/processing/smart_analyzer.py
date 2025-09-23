@@ -162,14 +162,28 @@ class SmartKeywordAnalyzer:
         matched_keywords = []
         total_score = 0.0
         
-        # Define topic-specific vs generic keyword priorities
-        generic_keywords = {'aws', 'amazon', 'cloud computing', 'cloud'}
+        # IMPROVED: Get generic patterns from configuration instead of hard-coding
+        generic_patterns = set()
+        
+        if self.settings.smart_processing.generic_patterns_enabled:
+            # Flatten all categorized patterns into a single set
+            for category, patterns in self.settings.smart_processing.generic_patterns.items():
+                generic_patterns.update(patterns)
+            
+            self.logger.debug(f"Loaded {len(generic_patterns)} generic patterns from {len(self.settings.smart_processing.generic_patterns)} categories")
+        else:
+            self.logger.debug("Generic pattern classification disabled in settings")
+        
         topic_specific_keywords = set()
         
-        # Identify topic-specific keywords (multi-word or non-generic single words)
+        # FIXED: Classify keywords based on semantic meaning, not just word count
         for kw in keywords:
-            if ' ' in kw or kw.lower() not in generic_keywords:
-                topic_specific_keywords.add(kw.lower())
+            kw_lower = kw.lower().strip()
+            if kw_lower not in generic_patterns:
+                # Only truly domain-specific keywords count as topic-specific
+                topic_specific_keywords.add(kw_lower)
+            
+        self.logger.debug(f"Keyword classification - Generic patterns: {len(generic_patterns)}, Topic-specific: {topic_specific_keywords}")
         
         # Track if we match any topic-specific keywords
         matched_topic_specific = False
@@ -179,7 +193,7 @@ class SmartKeywordAnalyzer:
                 continue
                 
             # Determine keyword specificity weight
-            is_generic = keyword.lower() in generic_keywords
+            is_generic = keyword.lower() in generic_patterns
             is_topic_specific = keyword.lower() in topic_specific_keywords
             specificity_multiplier = 0.3 if is_generic else 1.0  # Generic keywords get 30% weight
                 
@@ -419,6 +433,12 @@ class SmartKeywordAnalyzer:
                 return "high_confidence"  # Skip AI, very likely relevant
             elif relevance_score <= 0.2:
                 return "low_confidence"   # Skip AI, very likely irrelevant
+        
+        # IMPROVED: Block semantically penalized articles with low scores
+        # These are articles that matched keywords but failed semantic coherence checks
+        elif confidence_level <= 0.3 and relevance_score <= 0.35:
+            self.logger.debug(f"Blocking semantically penalized article: score={relevance_score:.3f}, confidence={confidence_level:.3f}")
+            return "definitely_irrelevant"  # Block articles that are semantically incoherent
         
         # Default to uncertain (needs AI processing)
         return "uncertain"

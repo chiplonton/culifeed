@@ -233,6 +233,77 @@ class SmartProcessingSettings(BaseModel):
         le=1.0,
         description="Sample rate for quality validation of skipped articles (10%)"
     )
+    
+    # Generic pattern classification settings
+    generic_patterns_enabled: bool = Field(
+        default=True,
+        description="Enable generic pattern classification for semantic penalties"
+    )
+    
+    generic_patterns: Dict[str, List[str]] = Field(
+        default_factory=lambda: {
+            "update_feature": [
+                "new feature", "new features", "latest feature", "latest features",
+                "new update", "new updates", "latest update", "latest updates",
+                "recent update", "recent updates", "update", "updates",
+                "feature update", "feature updates", "new release", "new releases",
+                "latest release", "recent release", "version update", "upgrade",
+                "enhancement", "enhancements", "improvement", "improvements"
+            ],
+            "guide_tutorial": [
+                "best practices", "best practice", "practices", "tutorial", "guide",
+                "documentation", "announcement", "announcements", "how to",
+                "getting started", "quick start", "overview", "introduction",
+                "tips", "tips and tricks", "tutorial guide", "step by step",
+                "walkthrough", "handbook", "reference", "cheat sheet"
+            ],
+            "general_tech": [
+                "development", "coding", "programming", "algorithm", "software",
+                "application", "mobile app", "web app", "app development",
+                "technology", "tech", "digital", "innovation", "solution",
+                "solutions", "framework", "library", "tool", "tools",
+                "methodology", "approach", "strategy", "implementation",
+                "architecture", "design", "pattern", "patterns"
+            ],
+            "cloud_aws": [
+                "aws", "amazon", "cloud computing", "cloud", "cloud service",
+                "service", "platform", "infrastructure", "deployment",
+                "hosting", "server", "serverless", "microservices",
+                "devops", "ci cd", "automation", "monitoring", "logging",
+                "security", "performance", "scalability", "reliability"
+            ],
+            "business_industry": [
+                "enterprise", "business", "industry", "market", "trends",
+                "analysis", "report", "survey", "study", "research",
+                "insights", "data", "analytics", "metrics", "kpi",
+                "roi", "cost", "pricing", "budget", "optimization"
+            ],
+            "time_frequency": [
+                "daily", "weekly", "monthly", "quarterly", "annual",
+                "regular", "periodic", "scheduled", "routine", "ongoing",
+                "continuous", "real time", "instant", "immediate"
+            ],
+            "quality_status": [
+                "quality", "testing", "bug", "bugs", "issue", "issues",
+                "problem", "problems", "fix", "fixes", "patch", "patches",
+                "stable", "beta", "alpha", "production", "staging",
+                "maintenance", "support", "help", "troubleshooting"
+            ],
+            "descriptors": [
+                "new", "latest", "recent", "modern", "advanced", "simple",
+                "easy", "quick", "fast", "efficient", "powerful", "flexible",
+                "comprehensive", "complete", "full", "basic", "essential",
+                "popular", "trending", "top", "best", "recommended"
+            ],
+            "actions": [
+                "learn", "build", "create", "develop", "deploy", "manage",
+                "configure", "setup", "install", "migrate", "integrate",
+                "optimize", "scale", "monitor", "secure", "backup",
+                "restore", "troubleshoot", "debug", "test", "validate"
+            ]
+        },
+        description="Categorized generic patterns for semantic penalty classification"
+    )
 
 class DeliveryQualitySettings(BaseModel):
     """Message delivery quality thresholds and formatting configuration."""
