@@ -3,6 +3,13 @@ name: Build and Push Docker Image
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Docker tag to build and push'
+        required: true
+        default: 'manual'
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -44,9 +51,10 @@ jobs:
       with:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         tags: |
-          type=semver,pattern={{version}}${{ matrix.variant.suffix }}
-          type=semver,pattern={{major}}.{{minor}}${{ matrix.variant.suffix }}
-          type=raw,value=latest${{ matrix.variant.suffix }}
+          type=semver,pattern={{version}}${{ matrix.variant.suffix }},enable=${{ github.event_name == 'release' }}
+          type=semver,pattern={{major}}.{{minor}}${{ matrix.variant.suffix }},enable=${{ github.event_name == 'release' }}
+          type=raw,value=latest${{ matrix.variant.suffix }},enable=${{ github.event_name == 'release' }}
+          type=raw,value=${{ github.event.inputs.tag }}${{ matrix.variant.suffix }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
     - name: Build Docker image for testing (${{ matrix.variant.name }})
       uses: docker/build-push-action@v5
@@ -55,6 +63,7 @@ jobs:
         file: ${{ matrix.variant.dockerfile }}
         platforms: linux/amd64
         push: false
+        load: true
         tags: culifeed-test:${{ matrix.variant.name }}
         cache-from: type=gha,key=${{ matrix.variant.name }}
         cache-to: type=gha,mode=max,key=${{ matrix.variant.name }}
