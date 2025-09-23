@@ -5,6 +5,22 @@ All notable changes to CuliFeed will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2025-01-23
+
+### Fixed
+
+#### Bot Command Improvements
+- **Multi-word Topic Editing**: Fixed `/edittopic` command to correctly parse topic names containing spaces
+  - Now properly handles topics like "TikTok software engineers" instead of only recognizing first word
+  - Implements smart topic name matching that progressively checks existing topics
+  - Consistent parsing behavior with `/addtopic` and `/removetopic` commands
+  - Enhanced help message with clearer examples and comma requirement explanation
+
+#### Technical Fixes
+- **Command Argument Parsing**: Replaced single-word parsing (`args[0]`) with intelligent multi-word parser
+- **Topic Name Resolution**: Added `_parse_edit_topic_args()` method for robust topic name matching
+- **User Experience**: Updated help text to clearly show comma-separated keyword format requirement
+
 ## [1.1.0] - 2025-01-22
 
 ### Added
