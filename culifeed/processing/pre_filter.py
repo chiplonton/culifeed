@@ -158,10 +158,9 @@ class PreFilterEngine:
             if len(keyword_words) > 1:
                 # Multi-word keyword: check for individual word matches
                 word_matches = sum(1 for word in keyword_words if word in word_counts)
-                if word_matches > 0:
-                    # Partial match score based on word coverage
-                    word_coverage = word_matches / len(keyword_words)
-                    word_score = word_coverage * self.thresholds['partial_word_weight']  # Lower weight than exact phrase
+                if word_matches == len(keyword_words):
+                    # Full match score - require ALL words for multi-word keywords
+                    word_score = self.thresholds['partial_word_weight']  # Full partial weight when all words found
                     keyword_score = max(keyword_score, word_score)
                     if word_matches == len(keyword_words):
                         matched_keywords += 1
