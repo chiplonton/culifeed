@@ -72,32 +72,32 @@ jobs:
       run: |
         echo "🧪 Testing ${{ matrix.variant.name }} image before push..."
 
-        # Test 1: Basic startup and configuration
-        echo "📋 Test 1: Configuration and startup test"
-        docker run --rm \
-          -e TELEGRAM_BOT_TOKEN="test_token" \
-          -e DATABASE_URL="sqlite:///tmp/test.db" \
-          culifeed-test:${{ matrix.variant.name }} \
-          python -c "
-        import sys
-        sys.path.append('/app')
-        from core.settings import get_settings
-        settings = get_settings()
-        print(f'✅ App loads successfully (v{settings.app.version})')
-        "
-
-        # Test 2: Critical dependencies
-        echo "📋 Test 2: Dependencies verification"
-        docker run --rm culifeed-test:${{ matrix.variant.name }} \
+        # Test 1: Dependencies verification
+        echo "📋 Test 1: Dependencies verification"
+        docker run --rm --entrypoint="" culifeed-test:${{ matrix.variant.name }} \
           python -c "
         import asyncio, aiohttp, feedparser, telegram, yaml
         from bs4 import BeautifulSoup
         print('✅ All critical dependencies available')
         "
 
+        # Test 2: Configuration loading
+        echo "📋 Test 2: Configuration loading"
+        docker run --rm --entrypoint="" \
+          -e CULIFEED_TELEGRAM__BOT_TOKEN="123456789:ABCdefGHIjklMNOpqrsTUVwxyz1234567890_test" \
+          -e CULIFEED_DATABASE__URL="sqlite:///tmp/test.db" \
+          culifeed-test:${{ matrix.variant.name }} \
+          python -c "
+        import sys
+        sys.path.append('/app')
+        from culifeed.config.settings import get_settings
+        settings = get_settings()
+        print('✅ Configuration loads successfully')
+        "
+
         # Test 3: Entry points exist
         echo "📋 Test 3: Service entry points"
-        docker run --rm culifeed-test:${{ matrix.variant.name }} \
+        docker run --rm --entrypoint="" culifeed-test:${{ matrix.variant.name }} \
           sh -c 'test -f /app/run_bot.py && test -f /app/run_daily_scheduler.py && echo "✅ Entry points exist"'
 
         echo "✅ All tests passed for ${{ matrix.variant.name }}!"
