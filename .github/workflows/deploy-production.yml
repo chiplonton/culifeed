@@ -25,15 +25,13 @@ jobs:
         mkdir -p ~/.ssh
         echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
         chmod 600 ~/.ssh/deploy_key
-        echo "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
-        chmod 600 ~/.ssh/known_hosts
 
     - name: Deploy to Production
       env:
         DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
       run: |
-        ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes ${DEPLOY_USER}@${DEPLOY_HOST} << 'DEPLOY_SCRIPT'
+        ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new ${DEPLOY_USER}@${DEPLOY_HOST} << 'DEPLOY_SCRIPT'
         set -e
 
         echo "🚀 Starting CuliFeed deployment..."
@@ -120,7 +118,6 @@ jobs:
       if: always()
       run: |
         rm -f ~/.ssh/deploy_key
-        rm -f ~/.ssh/known_hosts
 
     - name: Deployment Success Notification
       if: success()

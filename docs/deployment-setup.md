@@ -97,16 +97,9 @@ Add these secrets to your GitHub repository:
 DEPLOY_HOST=your-server.com
 DEPLOY_USER=culifeed-deploy
 DEPLOY_SSH_KEY=contents_of_private_key_file
-DEPLOY_KNOWN_HOSTS=your-server.com ssh-rsa AAAA...
 ```
 
-### Generate Known Hosts
-```bash
-# On your local machine, get the server's SSH fingerprint
-ssh-keyscan -H your-server.com > known_hosts
-cat known_hosts
-# Copy the output to DEPLOY_KNOWN_HOSTS secret
-```
+**Note**: The workflow uses `StrictHostKeyChecking=accept-new` for simplified setup. Host keys are automatically accepted and remembered on first connection.
 
 ## Deployment Workflow
 

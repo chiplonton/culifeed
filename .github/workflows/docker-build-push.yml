@@ -48,6 +48,51 @@ jobs:
           type=semver,pattern={{major}}.{{minor}}${{ matrix.variant.suffix }}
           type=raw,value=latest${{ matrix.variant.suffix }}
 
+    - name: Build Docker image for testing (${{ matrix.variant.name }})
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ${{ matrix.variant.dockerfile }}
+        platforms: linux/amd64
+        push: false
+        tags: culifeed-test:${{ matrix.variant.name }}
+        cache-from: type=gha,key=${{ matrix.variant.name }}
+        cache-to: type=gha,mode=max,key=${{ matrix.variant.name }}
+
+    - name: Test Docker image (${{ matrix.variant.name }})
+      run: |
+        echo "🧪 Testing ${{ matrix.variant.name }} image before push..."
+
+        # Test 1: Basic startup and configuration
+        echo "📋 Test 1: Configuration and startup test"
+        docker run --rm \
+          -e TELEGRAM_BOT_TOKEN="test_token" \
+          -e DATABASE_URL="sqlite:///tmp/test.db" \
+          culifeed-test:${{ matrix.variant.name }} \
+          python -c "
+        import sys
+        sys.path.append('/app')
+        from core.settings import get_settings
+        settings = get_settings()
+        print(f'✅ App loads successfully (v{settings.app.version})')
+        "
+
+        # Test 2: Critical dependencies
+        echo "📋 Test 2: Dependencies verification"
+        docker run --rm culifeed-test:${{ matrix.variant.name }} \
+          python -c "
+        import asyncio, aiohttp, feedparser, telegram, yaml
+        from bs4 import BeautifulSoup
+        print('✅ All critical dependencies available')
+        "
+
+        # Test 3: Entry points exist
+        echo "📋 Test 3: Service entry points"
+        docker run --rm culifeed-test:${{ matrix.variant.name }} \
+          sh -c 'test -f /app/run_bot.py && test -f /app/run_daily_scheduler.py && echo "✅ Entry points exist"'
+
+        echo "✅ All tests passed for ${{ matrix.variant.name }}!"
+
     - name: Build and push Docker image (${{ matrix.variant.name }})
       uses: docker/build-push-action@v5
       with:
@@ -58,4 +103,7 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha,key=${{ matrix.variant.name }}
-        cache-to: type=gha,mode=max,key=${{ matrix.variant.name }}
+
+    - name: Cleanup test image (${{ matrix.variant.name }})
+      if: always()
+      run: docker rmi culifeed-test:${{ matrix.variant.name }} || true
