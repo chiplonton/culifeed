@@ -162,68 +162,17 @@ class SmartKeywordAnalyzer:
         matched_keywords = []
         total_score = 0.0
         
-        # IMPROVED: Define topic-specific vs generic keyword classification
-        # These patterns are considered generic even if multi-word
-        generic_patterns = {
-            # Update/feature patterns
-            'new feature', 'new features', 'latest feature', 'latest features',
-            'new update', 'new updates', 'latest update', 'latest updates',
-            'recent update', 'recent updates', 'update', 'updates',
-            'feature update', 'feature updates', 'new release', 'new releases',
-            'latest release', 'recent release', 'version update', 'upgrade',
-            'enhancement', 'enhancements', 'improvement', 'improvements',
-
-            # Practice/guide patterns
-            'best practices', 'best practice', 'practices', 'tutorial', 'guide',
-            'documentation', 'announcement', 'announcements', 'how to',
-            'getting started', 'quick start', 'overview', 'introduction',
-            'tips', 'tips and tricks', 'tutorial guide', 'step by step',
-            'walkthrough', 'handbook', 'reference', 'cheat sheet',
-
-            # General tech terms
-            'development', 'coding', 'programming', 'algorithm', 'software',
-            'application', 'mobile app', 'web app', 'app development',
-            'technology', 'tech', 'digital', 'innovation', 'solution',
-            'solutions', 'framework', 'library', 'tool', 'tools',
-            'methodology', 'approach', 'strategy', 'implementation',
-            'architecture', 'design', 'pattern', 'patterns',
-
-            # Cloud/AWS general terms
-            'aws', 'amazon', 'cloud computing', 'cloud', 'cloud service',
-            'service', 'platform', 'infrastructure', 'deployment',
-            'hosting', 'server', 'serverless', 'microservices',
-            'devops', 'ci cd', 'automation', 'monitoring', 'logging',
-            'security', 'performance', 'scalability', 'reliability',
-
-            # Business/industry terms
-            'enterprise', 'business', 'industry', 'market', 'trends',
-            'analysis', 'report', 'survey', 'study', 'research',
-            'insights', 'data', 'analytics', 'metrics', 'kpi',
-            'roi', 'cost', 'pricing', 'budget', 'optimization',
-
-            # Time/frequency terms
-            'daily', 'weekly', 'monthly', 'quarterly', 'annual',
-            'regular', 'periodic', 'scheduled', 'routine', 'ongoing',
-            'continuous', 'real time', 'instant', 'immediate',
-
-            # Quality/status terms
-            'quality', 'testing', 'bug', 'bugs', 'issue', 'issues',
-            'problem', 'problems', 'fix', 'fixes', 'patch', 'patches',
-            'stable', 'beta', 'alpha', 'production', 'staging',
-            'maintenance', 'support', 'help', 'troubleshooting',
-
-            # General descriptors
-            'new', 'latest', 'recent', 'modern', 'advanced', 'simple',
-            'easy', 'quick', 'fast', 'efficient', 'powerful', 'flexible',
-            'comprehensive', 'complete', 'full', 'basic', 'essential',
-            'popular', 'trending', 'top', 'best', 'recommended',
-
-            # Action terms
-            'learn', 'build', 'create', 'develop', 'deploy', 'manage',
-            'configure', 'setup', 'install', 'migrate', 'integrate',
-            'optimize', 'scale', 'monitor', 'secure', 'backup',
-            'restore', 'troubleshoot', 'debug', 'test', 'validate'
-        }
+        # IMPROVED: Get generic patterns from configuration instead of hard-coding
+        generic_patterns = set()
+        
+        if self.settings.smart_processing.generic_patterns_enabled:
+            # Flatten all categorized patterns into a single set
+            for category, patterns in self.settings.smart_processing.generic_patterns.items():
+                generic_patterns.update(patterns)
+            
+            self.logger.debug(f"Loaded {len(generic_patterns)} generic patterns from {len(self.settings.smart_processing.generic_patterns)} categories")
+        else:
+            self.logger.debug("Generic pattern classification disabled in settings")
         
         topic_specific_keywords = set()
         
