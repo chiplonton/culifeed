@@ -385,17 +385,31 @@ class ProcessingPipeline:
                             article.ai_confidence = smart_result.confidence_level
                             article.ai_provider = "smart_routing_confident"
                             article.ai_reasoning = f"Smart routing (confident): {routing_reason}"
-                            
+
+                            # Generate summary if relevance is high enough (same logic as regular AI processing)
+                            summary = None
+                            if smart_result.relevance_score >= self.settings.processing.ai_summary_threshold:
+                                try:
+                                    summary_result = await self.ai_manager.generate_summary(article)
+                                    if summary_result and hasattr(summary_result, 'summary') and summary_result.summary:
+                                        summary = summary_result.summary
+                                        article.summary = summary
+                                    else:
+                                        article.summary = None
+                                except Exception as e:
+                                    self.logger.warning(f"Summary generation failed for smart-routed article {article.id}: {e}")
+                                    article.summary = None
+
                             if article not in ai_processed_articles:
                                 ai_processed_articles.append(article)
-                            
+
                             processing_results.append({
                                 'article_id': article.id,
                                 'chat_id': topic.chat_id,
                                 'topic_name': topic_name,
                                 'ai_relevance_score': smart_result.relevance_score,
                                 'confidence_score': smart_result.confidence_level,
-                                'summary': None  # No AI summary for smart routing
+                                'summary': summary
                             })
                             
                             self.logger.debug(f"Smart routing ACCEPT: {article.title[:50]}... (score={smart_result.relevance_score:.3f})")
