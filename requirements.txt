@@ -1,5 +1,5 @@
-# CuliFeed Dependencies
-# Core Python packages for RSS content curation system
+# CuliFeed Production Dependencies
+# Core packages required for production runtime
 # Updated for Python 3.13 compatibility with latest stable versions
 
 # Web and HTTP
@@ -9,40 +9,29 @@ aiohttp>=3.10.0                # Async HTTP client for concurrent operations
 # RSS and Content Processing
 feedparser>=6.0.11             # RSS/Atom feed parsing
 beautifulsoup4>=4.12.3         # HTML parsing and content extraction
-# Note: lxml removed due to build issues on Python 3.13, BeautifulSoup4 will use html.parser
 
 # Telegram Bot
 python-telegram-bot>=21.0      # Telegram bot API wrapper (latest stable)
 
-# AI and Machine Learning
-google-generativeai>=0.8.0     # Google Gemini API client (latest)
-openai>=1.50.0                 # OpenAI API client (latest stable)
-groq>=0.12.0                   # Groq API client (latest)
+# AI and Machine Learning (All Used)
+google-generativeai>=0.8.0     # Google Gemini API client
+openai>=1.50.0                 # OpenAI API client (used in openrouter_provider.py)
+groq>=0.12.0                   # Groq API client
 
 # Data Validation and Configuration
-pydantic>=2.9.0                # Data validation and settings management (latest)
+pydantic>=2.9.0                # Data validation and settings management
 pydantic-settings>=2.6.0       # Settings management with Pydantic
 PyYAML>=6.0.2                  # YAML configuration file support
 python-dotenv>=1.0.0           # Environment variable loading from .env files
-
-# Database
-# Note: sqlite3 is built into Python, no external dependency needed
 
 # Utilities and Tools
 python-dateutil>=2.9.0         # Enhanced date parsing
 pytz>=2024.2                   # Timezone support (latest)
 schedule>=1.2.2                # Job scheduling for daily processing
-click>=8.1.7                   # CLI interface
+
+# CLI Interface (Essential for main.py management commands)
+click>=8.1.7                   # CLI interface - needed for main.py --init-db, --health-check
 rich>=13.9.0                   # Rich console output for CLI
 
-# Development and Testing (optional, but recommended)
-pytest>=8.3.0                  # Testing framework (latest)
-pytest-asyncio>=0.24.0         # Async testing support
-pytest-cov>=6.0.0              # Coverage reporting (latest)
-black>=24.10.0                 # Code formatting (latest)
-flake8>=7.1.0                  # Code linting (latest)
-mypy>=1.13.0                   # Type checking (latest)
-
-# Production deployment (optional)
-gunicorn>=23.0.0               # WSGI server for webhook mode (latest)
-supervisor>=4.2.5              # Process management
+# Production deployment
+supervisor>=4.2.5              # Process management (Python version - no system package needed)

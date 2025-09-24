@@ -17,6 +17,7 @@ from .providers.groq_provider import GroqProvider
 from .providers.huggingface_provider import HuggingFaceProvider
 from .providers.openrouter_provider import OpenRouterProvider
 from .providers.gemini_provider import GeminiProvider
+from .providers.openai_provider import OpenAIProvider
 from ..database.models import Article, Topic
 from ..config.settings import get_settings, AIProvider as ConfigAIProvider, ProviderPriority
 from ..utils.logging import get_logger_for_component
@@ -170,13 +171,22 @@ class AIManager:
             except Exception as e:
                 self.logger.warning(f"Failed to initialize OpenRouter provider: {e}")
 
-        # TODO: Initialize OpenAI provider when implemented
-        # if self.settings.ai.openai_api_key:
-        #     try:
-        #         openai_provider = OpenAIProvider(...)
-        #         self.providers[AIProviderType.OPENAI] = openai_provider
-        #         ...
-        
+        # Initialize OpenAI if API key available
+        if self.settings.ai.openai_api_key:
+            try:
+                openai_provider = OpenAIProvider(
+                    api_key=self.settings.ai.openai_api_key,
+                    model_name=self.settings.ai.openai_model
+                )
+                self.providers[AIProviderType.OPENAI] = openai_provider
+                self.provider_health[AIProviderType.OPENAI] = ProviderHealth(
+                    provider_type=AIProviderType.OPENAI,
+                    available=True
+                )
+                self.logger.info("OpenAI provider initialized successfully")
+            except Exception as e:
+                self.logger.warning(f"Failed to initialize OpenAI provider: {e}")
+
         if not self.providers:
             self.logger.error("No AI providers available! Check API keys in configuration.")
 
