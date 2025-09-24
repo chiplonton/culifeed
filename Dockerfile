@@ -6,10 +6,7 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    supervisor \
-    && rm -rf /var/lib/apt/lists/*
+# No system dependencies needed - supervisor handled by pip requirements
 
 # Create non-root user
 RUN useradd -m -s /bin/bash culifeed && \

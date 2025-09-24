@@ -1,0 +1,15 @@
+# CuliFeed Development Dependencies
+# Extends production requirements with development and testing tools
+
+# Include all production dependencies
+-r requirements.txt
+
+# Development and Testing
+pytest>=8.3.0                  # Testing framework (latest)
+pytest-asyncio>=0.24.0         # Async testing support
+pytest-cov>=6.0.0              # Coverage reporting (latest)
+
+# Code Quality
+black>=24.10.0                 # Code formatting (latest)
+flake8>=7.1.0                  # Code linting (latest)
+mypy>=1.13.0                   # Type checking (latest)
