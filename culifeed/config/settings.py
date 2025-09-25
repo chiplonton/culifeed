@@ -21,9 +21,8 @@ class AIProvider(str, Enum):
     """Available AI providers."""
     GEMINI = "gemini"
     GROQ = "groq"
-    HUGGINGFACE = "huggingface"
-    OPENROUTER = "openrouter"
     OPENAI = "openai"
+    DEEPSEEK = "deepseek"
 
 
 class ProviderPriority(str, Enum):
@@ -69,10 +68,9 @@ class ProcessingSettings(BaseModel):
 class ProviderQualitySettings(BaseModel):
     """AI provider quality factors for confidence adjustment."""
     groq: float = Field(default=1.0, ge=0.0, le=1.0, description="Premium quality provider")
-    gemini: float = Field(default=1.0, ge=0.0, le=1.0, description="Premium quality provider") 
+    gemini: float = Field(default=1.0, ge=0.0, le=1.0, description="Premium quality provider")
     openai: float = Field(default=1.0, ge=0.0, le=1.0, description="Premium quality provider")
-    huggingface: float = Field(default=0.85, ge=0.0, le=1.0, description="Good but summarization-focused")
-    openrouter: float = Field(default=0.70, ge=0.0, le=1.0, description="Free tier limitations")
+    deepseek: float = Field(default=1.0, ge=0.0, le=1.0, description="Premium quality provider with advanced reasoning")
     keyword_backup: float = Field(default=0.45, ge=0.0, le=1.0, description="Basic keyword matching")
     keyword_fallback: float = Field(default=0.45, ge=0.0, le=1.0, description="Basic keyword matching")
 
@@ -435,23 +433,20 @@ class AISettings(BaseModel):
     """AI providers configuration."""
     gemini_api_key: Optional[str] = Field(default=None, description="Google Gemini API key")
     groq_api_key: Optional[str] = Field(default=None, description="Groq API key")
-    huggingface_api_key: Optional[str] = Field(default=None, description="HuggingFace API key")
-    openrouter_api_key: Optional[str] = Field(default=None, description="OpenRouter API key")
     openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
+    deepseek_api_key: Optional[str] = Field(default=None, description="DeepSeek API key")
     
     # Multi-model configuration for fallback
     gemini_models: List[str] = Field(default=["gemini-1.5-flash"], description="Gemini models in priority order")
     groq_models: List[str] = Field(default=["llama-3.3-70b-versatile", "llama-3.1-8b-instant"], description="Groq models in priority order")
-    huggingface_models: List[str] = Field(default=["microsoft/DialoGPT-medium", "google/flan-t5-large"], description="HuggingFace models in priority order")
-    openrouter_models: List[str] = Field(default=["meta-llama/llama-3.2-3b-instruct:free", "mistralai/mistral-7b-instruct:free"], description="OpenRouter FREE models in priority order")
     openai_models: List[str] = Field(default=["gpt-4o-mini"], description="OpenAI models in priority order")
+    deepseek_models: List[str] = Field(default=["deepseek-chat", "deepseek-reasoner"], description="DeepSeek models in priority order")
     
     # Legacy single model fields (for backward compatibility)
     gemini_model: str = Field(default="gemini-1.5-flash", description="Primary Gemini model")
     groq_model: str = Field(default="llama-3.3-70b-versatile", description="Primary Groq model")
-    huggingface_model: str = Field(default="microsoft/DialoGPT-medium", description="Primary HuggingFace model")
-    openrouter_model: str = Field(default="meta-llama/llama-3.2-3b-instruct:free", description="Primary OpenRouter FREE model")
     openai_model: str = Field(default="gpt-4o-mini", description="Primary OpenAI model")
+    deepseek_model: str = Field(default="deepseek-chat", description="Primary DeepSeek model")
     
     temperature: float = Field(default=0.1, ge=0.0, le=2.0, description="AI temperature setting")
     max_tokens: int = Field(default=500, ge=50, le=2000, description="Maximum tokens per response")
@@ -472,12 +467,10 @@ class AISettings(BaseModel):
             return self.gemini_api_key
         elif provider == AIProvider.GROQ:
             return self.groq_api_key
-        elif provider == AIProvider.HUGGINGFACE:
-            return self.huggingface_api_key
-        elif provider == AIProvider.OPENROUTER:
-            return self.openrouter_api_key
         elif provider == AIProvider.OPENAI:
             return self.openai_api_key
+        elif provider == AIProvider.DEEPSEEK:
+            return self.deepseek_api_key
         return None
     
     def get_models_for_provider(self, provider: AIProvider) -> List[str]:
@@ -486,12 +479,10 @@ class AISettings(BaseModel):
             return self.gemini_models
         elif provider == AIProvider.GROQ:
             return self.groq_models
-        elif provider == AIProvider.HUGGINGFACE:
-            return self.huggingface_models
-        elif provider == AIProvider.OPENROUTER:
-            return self.openrouter_models
         elif provider == AIProvider.OPENAI:
             return self.openai_models
+        elif provider == AIProvider.DEEPSEEK:
+            return self.deepseek_models
         return []
     
     def validate_provider_key(self, provider: AIProvider) -> bool:
@@ -509,20 +500,16 @@ class AISettings(BaseModel):
                 return list(self.custom_provider_order)
             else:
                 # Fallback to cost optimized if custom is empty
-                return [AIProvider.GROQ, AIProvider.HUGGINGFACE, AIProvider.OPENROUTER, 
-                       AIProvider.GEMINI, AIProvider.OPENAI]
-        
+                return [AIProvider.GROQ, AIProvider.DEEPSEEK, AIProvider.GEMINI, AIProvider.OPENAI]
+
         elif self.provider_priority_profile == ProviderPriority.QUALITY_FIRST:
-            return [AIProvider.OPENAI, AIProvider.GEMINI, AIProvider.GROQ, 
-                   AIProvider.HUGGINGFACE, AIProvider.OPENROUTER]
-        
+            return [AIProvider.DEEPSEEK, AIProvider.OPENAI, AIProvider.GEMINI, AIProvider.GROQ]
+
         elif self.provider_priority_profile == ProviderPriority.BALANCED:
-            return [AIProvider.GEMINI, AIProvider.GROQ, AIProvider.OPENAI,
-                   AIProvider.HUGGINGFACE, AIProvider.OPENROUTER]
-        
+            return [AIProvider.DEEPSEEK, AIProvider.GEMINI, AIProvider.GROQ, AIProvider.OPENAI]
+
         else:  # COST_OPTIMIZED (default)
-            return [AIProvider.GROQ, AIProvider.HUGGINGFACE, AIProvider.OPENROUTER, 
-                   AIProvider.GEMINI, AIProvider.OPENAI]
+            return [AIProvider.GROQ, AIProvider.DEEPSEEK, AIProvider.GEMINI, AIProvider.OPENAI]
     
     def validate_priority_configuration(self) -> List[str]:
         """Validate provider priority configuration.
