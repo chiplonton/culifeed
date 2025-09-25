@@ -14,10 +14,10 @@ from enum import Enum
 
 from .providers.base import AIProvider, AIResult, AIError, AIProviderType, RateLimitInfo
 from .providers.groq_provider import GroqProvider
-from .providers.huggingface_provider import HuggingFaceProvider
-from .providers.openrouter_provider import OpenRouterProvider
+
 from .providers.gemini_provider import GeminiProvider
 from .providers.openai_provider import OpenAIProvider
+from .providers.deepseek_provider import DeepSeekProvider
 from ..database.models import Article, Topic
 from ..config.settings import get_settings, AIProvider as ConfigAIProvider, ProviderPriority
 from ..utils.logging import get_logger_for_component
@@ -139,38 +139,6 @@ class AIManager:
             except Exception as e:
                 self.logger.warning(f"Failed to initialize Groq provider: {e}")
 
-        # Initialize HuggingFace if API key available
-        if self.settings.ai.huggingface_api_key:
-            try:
-                huggingface_provider = HuggingFaceProvider(
-                    api_key=self.settings.ai.huggingface_api_key,
-                    model_name=getattr(self.settings.ai, 'huggingface_model', None)
-                )
-                self.providers[AIProviderType.HUGGINGFACE] = huggingface_provider
-                self.provider_health[AIProviderType.HUGGINGFACE] = ProviderHealth(
-                    provider_type=AIProviderType.HUGGINGFACE,
-                    available=True
-                )
-                self.logger.info("HuggingFace provider initialized successfully")
-            except Exception as e:
-                self.logger.warning(f"Failed to initialize HuggingFace provider: {e}")
-
-        # Initialize OpenRouter if API key available
-        if self.settings.ai.openrouter_api_key:
-            try:
-                openrouter_provider = OpenRouterProvider(
-                    api_key=self.settings.ai.openrouter_api_key,
-                    model_name=self.settings.ai.openrouter_model
-                )
-                self.providers[AIProviderType.OPENROUTER] = openrouter_provider
-                self.provider_health[AIProviderType.OPENROUTER] = ProviderHealth(
-                    provider_type=AIProviderType.OPENROUTER,
-                    available=True
-                )
-                self.logger.info("OpenRouter provider initialized successfully")
-            except Exception as e:
-                self.logger.warning(f"Failed to initialize OpenRouter provider: {e}")
-
         # Initialize OpenAI if API key available
         if self.settings.ai.openai_api_key:
             try:
@@ -186,6 +154,22 @@ class AIManager:
                 self.logger.info("OpenAI provider initialized successfully")
             except Exception as e:
                 self.logger.warning(f"Failed to initialize OpenAI provider: {e}")
+
+        # Initialize DeepSeek if API key available
+        if self.settings.ai.deepseek_api_key:
+            try:
+                deepseek_provider = DeepSeekProvider(
+                    api_key=self.settings.ai.deepseek_api_key,
+                    model_name=self.settings.ai.deepseek_model
+                )
+                self.providers[AIProviderType.DEEPSEEK] = deepseek_provider
+                self.provider_health[AIProviderType.DEEPSEEK] = ProviderHealth(
+                    provider_type=AIProviderType.DEEPSEEK,
+                    available=True
+                )
+                self.logger.info("DeepSeek provider initialized successfully")
+            except Exception as e:
+                self.logger.warning(f"Failed to initialize DeepSeek provider: {e}")
 
         if not self.providers:
             self.logger.error("No AI providers available! Check API keys in configuration.")
@@ -206,14 +190,12 @@ class AIManager:
             # Get models for this provider from settings
             if provider_type == AIProviderType.GROQ:
                 models = self.settings.ai.get_models_for_provider(ConfigAIProvider.GROQ)
-            elif provider_type == AIProviderType.HUGGINGFACE:
-                models = self.settings.ai.get_models_for_provider(ConfigAIProvider.HUGGINGFACE)
-            elif provider_type == AIProviderType.OPENROUTER:
-                models = self.settings.ai.get_models_for_provider(ConfigAIProvider.OPENROUTER)
             elif provider_type == AIProviderType.GEMINI:
                 models = self.settings.ai.get_models_for_provider(ConfigAIProvider.GEMINI)
             elif provider_type == AIProviderType.OPENAI:
                 models = self.settings.ai.get_models_for_provider(ConfigAIProvider.OPENAI)
+            elif provider_type == AIProviderType.DEEPSEEK:
+                models = self.settings.ai.get_models_for_provider(ConfigAIProvider.DEEPSEEK)
             else:
                 models = []
             
@@ -518,24 +500,22 @@ class AIManager:
     
     def _config_to_provider_type(self, config_provider: ConfigAIProvider) -> Optional[AIProviderType]:
         """Convert configuration provider to provider type.
-        
+
         Args:
             config_provider: Provider from configuration
-            
+
         Returns:
             Corresponding AIProviderType or None
         """
         # Direct mapping from config AIProvider enum values to AIProviderType
         if config_provider == ConfigAIProvider.GROQ:
             return AIProviderType.GROQ
-        elif config_provider == ConfigAIProvider.HUGGINGFACE:
-            return AIProviderType.HUGGINGFACE
-        elif config_provider == ConfigAIProvider.OPENROUTER:
-            return AIProviderType.OPENROUTER
         elif config_provider == ConfigAIProvider.GEMINI:
             return AIProviderType.GEMINI
         elif config_provider == ConfigAIProvider.OPENAI:
             return AIProviderType.OPENAI
+        elif config_provider == ConfigAIProvider.DEEPSEEK:
+            return AIProviderType.DEEPSEEK
         else:
             return None
     
