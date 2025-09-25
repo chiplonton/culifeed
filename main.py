@@ -31,7 +31,7 @@ from rich import print as rprint
 # Add project root to Python path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from culifeed.config.settings import get_settings, create_example_config
+from culifeed.config.settings import get_settings
 from culifeed.database.schema import DatabaseSchema
 from culifeed.database.connection import get_db_manager
 from culifeed.utils.logging import configure_application_logging, get_logger_for_component
@@ -250,24 +250,30 @@ def init_db(ctx):
 
 @cli.command()
 def create_config():
-    """Create example configuration file."""
-    config_path = Path("config.yaml")
-    
-    if config_path.exists():
-        if not click.confirm(f"Config file {config_path} already exists. Overwrite?"):
+    """Create configuration file from example."""
+    import shutil
+
+    env_example_path = Path(".env.example")
+    env_path = Path(".env")
+
+    if not env_example_path.exists():
+        console.print("[bold red]❌ .env.example file not found[/bold red]")
+        sys.exit(1)
+
+    if env_path.exists():
+        if not click.confirm(f"Config file {env_path} already exists. Overwrite?"):
             console.print("[yellow]Configuration creation cancelled[/yellow]")
             return
-    
+
     try:
-        with open(config_path, 'w', encoding='utf-8') as f:
-            f.write(create_example_config())
-        
-        console.print(f"[bold green]✅ Configuration file created: {config_path}[/bold green]")
+        shutil.copy2(env_example_path, env_path)
+
+        console.print(f"[bold green]✅ Configuration file created: {env_path}[/bold green]")
         console.print("[yellow]📝 Don't forget to:[/yellow]")
-        console.print("  1. Copy .env.example to .env")
-        console.print("  2. Fill in your API keys in .env")
-        console.print("  3. Customize config.yaml as needed")
-        
+        console.print("  1. Fill in your actual API keys in .env")
+        console.print("  2. Adjust settings as needed for your environment")
+        console.print("  3. Keep your .env file secure and don't commit it to git")
+
     except Exception as e:
         console.print(f"[bold red]❌ Error creating config: {e}[/bold red]")
         sys.exit(1)
