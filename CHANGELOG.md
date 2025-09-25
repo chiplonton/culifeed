@@ -5,6 +5,22 @@ All notable changes to CuliFeed will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2025-01-25
+
+### Fixed
+
+#### Docker Container and CI Issues
+- **GitHub Actions Workflow**: Fixed Docker build tests failing due to missing AI provider API keys
+  - Added required environment variables for all 4 AI providers (Groq, DeepSeek, Gemini, OpenAI)
+  - Fixed `CULIFEED_DATABASE__URL` → `CULIFEED_DATABASE__PATH` variable name
+  - Added comprehensive configuration validation test using `python main.py check-config`
+- **Docker Container Supervisor**: Fixed supervisor path issue preventing container startup
+  - Corrected supervisor path from `/usr/bin/supervisord` → `/usr/local/bin/supervisord`
+  - Container now starts properly and manages both bot and scheduler services
+- **Configuration System**: Resolved environment-only configuration issues in containerized deployments
+  - All workflow tests now pass with proper environment variable setup
+  - Container initialization, database setup, and service management fully functional
+
 ## [1.3.0] - 2025-01-25
 
 ### Added
