@@ -12,7 +12,7 @@ Main Components:
 - AI Integration: Gemini/Groq/OpenAI with fallback chains
 """
 
-__version__ = "1.3.0"
+__version__ = "1.3.1"
 __author__ = "CuliFeed Development Team"
 __description__ = "AI-powered RSS content curation system"
 
