@@ -43,4 +43,4 @@ else:
 
 # Start supervisor to manage all services
 echo "Starting supervisor with all services..."
-exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
+exec /usr/local/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf

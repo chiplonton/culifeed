@@ -85,7 +85,11 @@ jobs:
         echo "📋 Test 2: Configuration loading"
         docker run --rm --entrypoint="" \
           -e CULIFEED_TELEGRAM__BOT_TOKEN="123456789:ABCdefGHIjklMNOpqrsTUVwxyz1234567890_test" \
-          -e CULIFEED_DATABASE__URL="sqlite:///tmp/test.db" \
+          -e CULIFEED_DATABASE__PATH="/tmp/test.db" \
+          -e CULIFEED_AI__GROQ_API_KEY="test_groq_api_key_for_ci_testing" \
+          -e CULIFEED_AI__GEMINI_API_KEY="test_gemini_api_key_for_ci_testing" \
+          -e CULIFEED_AI__OPENAI_API_KEY="test_openai_api_key_for_ci_testing" \
+          -e CULIFEED_AI__DEEPSEEK_API_KEY="test_deepseek_api_key_for_ci_testing" \
           culifeed-test:${{ matrix.variant.name }} \
           python -c "
         import sys
@@ -93,12 +97,25 @@ jobs:
         from culifeed.config.settings import get_settings
         settings = get_settings()
         print('✅ Configuration loads successfully')
+        print(f'Available AI providers: {len([p for p in [settings.ai.groq_api_key, settings.ai.gemini_api_key, settings.ai.openai_api_key, settings.ai.deepseek_api_key] if p])}')
         "
 
         # Test 3: Entry points exist
         echo "📋 Test 3: Service entry points"
         docker run --rm --entrypoint="" culifeed-test:${{ matrix.variant.name }} \
           sh -c 'test -f /app/run_bot.py && test -f /app/run_daily_scheduler.py && echo "✅ Entry points exist"'
+
+        # Test 4: Configuration validation
+        echo "📋 Test 4: Configuration validation"
+        docker run --rm --entrypoint="" \
+          -e CULIFEED_TELEGRAM__BOT_TOKEN="123456789:ABCdefGHIjklMNOpqrsTUVwxyz1234567890_test" \
+          -e CULIFEED_DATABASE__PATH="/tmp/test.db" \
+          -e CULIFEED_AI__GROQ_API_KEY="test_groq_api_key_for_ci_testing" \
+          -e CULIFEED_AI__GEMINI_API_KEY="test_gemini_api_key_for_ci_testing" \
+          -e CULIFEED_AI__OPENAI_API_KEY="test_openai_api_key_for_ci_testing" \
+          -e CULIFEED_AI__DEEPSEEK_API_KEY="test_deepseek_api_key_for_ci_testing" \
+          culifeed-test:${{ matrix.variant.name }} \
+          python main.py check-config
 
         echo "✅ All tests passed for ${{ matrix.variant.name }}!"
 
