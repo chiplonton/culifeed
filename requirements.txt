@@ -15,7 +15,7 @@ python-telegram-bot>=21.0      # Telegram bot API wrapper (latest stable)
 
 # AI and Machine Learning (All Used)
 google-generativeai>=0.8.0     # Google Gemini API client
-openai>=1.50.0                 # OpenAI API client (used in openrouter_provider.py)
+openai>=1.50.0                 # OpenAI API client (used for OpenAI and DeepSeek providers)
 groq>=0.12.0                   # Groq API client
 
 # Data Validation and Configuration
