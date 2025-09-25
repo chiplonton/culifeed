@@ -5,6 +5,61 @@ All notable changes to CuliFeed will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2025-01-25
+
+### Added
+
+#### DeepSeek AI Provider Integration
+- **Advanced Reasoning Provider**: Added DeepSeek provider with support for `deepseek-chat` and `deepseek-reasoner` models
+- **Multi-Model Support**: Extended all providers to support multiple model fallback within same provider
+- **Provider Priority Profiles**: Four configurable priority profiles for AI provider selection:
+  - `cost_optimized`: groq → deepseek → gemini → openai (default)
+  - `quality_first`: deepseek → openai → gemini → groq
+  - `balanced`: deepseek → gemini → groq → openai
+  - `custom`: User-defined provider order via `CULIFEED_AI__CUSTOM_PROVIDER_ORDER`
+
+#### Enhanced Multi-Level Fallback System
+- **Model-Level Fallback**: Automatic fallback between models within same provider
+- **Provider-Level Fallback**: Cross-provider fallback when entire provider fails
+- **Health Monitoring**: Real-time provider health status tracking
+- **Dynamic Routing**: Intelligent request routing based on provider availability
+
+### Removed
+
+#### Discontinued AI Providers
+- **HuggingFace Provider**: Removed due to inconsistent performance and rate limiting issues
+- **OpenRouter Provider**: Removed to streamline provider architecture and reduce complexity
+- **Related Configuration**: Removed all HuggingFace/OpenRouter API keys, models, and settings
+
+#### Configuration Cleanup
+- **Unused Variables Removed**: Eliminated 19 unused configuration variables (57 → 38 total)
+  - `CULIFEED_DEBUG`: Replaced with proper logging levels
+  - All `DELIVERY_QUALITY__*` settings: Feature not implemented
+  - All `FILTERING__*` settings: Replaced by AI processing
+  - All `PROVIDER_QUALITY__*` settings: Simplified to basic provider selection
+
+### Changed
+
+#### Streamlined 4-Provider Architecture
+- **Provider System**: Optimized from 6 to 4 providers (Groq, DeepSeek, Gemini, OpenAI)
+- **Configuration Structure**: Simplified environment variables for better maintainability
+- **Documentation Updates**: Updated README.md and CLAUDE.md for current provider system
+- **Primary Recommendation**: Changed from Gemini to Groq as primary free-tier provider
+
+#### Technical Improvements
+- **Test Coverage**: Updated all unit tests for 4-provider system (100% passing)
+- **Import Fixes**: Resolved main.py configuration import errors
+- **CLI Commands**: Modernized configuration creation workflow (config.yaml → .env only)
+- **Code Quality**: Enhanced error handling and provider initialization
+
+### Fixed
+
+#### Configuration System
+- **Environment Loading**: Fixed configuration validation and loading issues
+- **API Key Security**: Improved API key handling and validation
+- **Import Dependencies**: Resolved missing import dependencies in main.py
+- **CLI Functionality**: Fixed configuration creation and validation commands
+
 ## [1.2.0] - 2025-01-23
 
 ### Added
