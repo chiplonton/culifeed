@@ -7,9 +7,8 @@ FROM python:3.11-alpine
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies in single layer for optimal caching
+# Install minimal system dependencies (supervisor handled by pip requirements)
 RUN apk add --no-cache \
-    supervisor \
     tzdata \
     ca-certificates \
     bash \

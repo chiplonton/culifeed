@@ -6,7 +6,7 @@ CuliFeed is an AI-powered Telegram bot that monitors RSS feeds and delivers only
 
 ## ✨ **Key Features**
 
-- 🤖 **Smart AI Filtering** - Uses Gemini/Groq/OpenAI to understand content relevance
+- 🤖 **Smart AI Filtering** - Uses Groq/DeepSeek/Gemini/OpenAI to understand content relevance
 - 📱 **Telegram Integration** - Easy setup and daily digest delivery 
 - 🎯 **Topic Matching** - Define interests, get personalized content
 - 💰 **Cost Effective** - Optimized for free AI provider tiers
@@ -19,14 +19,14 @@ CuliFeed is an AI-powered Telegram bot that monitors RSS feeds and delivers only
 
 ### Step 1: Get API Keys
 - **Telegram Bot Token**: Message [@BotFather](https://t.me/BotFather) → `/newbot`
-- **AI Provider Key**: [Gemini (Free)](https://makersuite.google.com/app/apikey) or [Groq (Free)](https://console.groq.com/keys)
+- **AI Provider Key**: [Groq (Free)](https://console.groq.com/keys), [DeepSeek (Premium)](https://platform.deepseek.com/api_keys), [Gemini (Free)](https://makersuite.google.com/app/apikey), or [OpenAI (Paid)](https://platform.openai.com/api-keys)
 
 ### Step 2: Deploy with Docker
 ```bash
 # Create environment file
 cat > .env << 'EOF'
 CULIFEED_TELEGRAM__BOT_TOKEN=your_bot_token_here
-CULIFEED_AI__GEMINI_API_KEY=your_gemini_api_key_here
+CULIFEED_AI__GROQ_API_KEY=your_groq_api_key_here
 EOF
 
 # Start CuliFeed services
@@ -62,9 +62,10 @@ docker run -d \
 # Telegram bot token from @BotFather
 CULIFEED_TELEGRAM__BOT_TOKEN=your_bot_token
 
-# At least one AI provider (Gemini recommended - free tier)
-CULIFEED_AI__GEMINI_API_KEY=your_gemini_key
+# At least one AI provider (Groq recommended - free tier)
 CULIFEED_AI__GROQ_API_KEY=your_groq_key
+CULIFEED_AI__DEEPSEEK_API_KEY=your_deepseek_key
+CULIFEED_AI__GEMINI_API_KEY=your_gemini_key
 CULIFEED_AI__OPENAI_API_KEY=your_openai_key
 ```
 

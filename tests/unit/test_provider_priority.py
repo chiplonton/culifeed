@@ -32,8 +32,7 @@ class TestProviderPriorityConfiguration:
         # Should return cost-optimized order
         expected_order = [
             AIProvider.GROQ, 
-            AIProvider.HUGGINGFACE, 
-            AIProvider.OPENROUTER,
+            AIProvider.DEEPSEEK,
             AIProvider.GEMINI, 
             AIProvider.OPENAI
         ]
@@ -46,11 +45,10 @@ class TestProviderPriorityConfiguration:
         settings = AISettings(provider_priority_profile=ProviderPriority.QUALITY_FIRST)
         
         expected_order = [
+            AIProvider.DEEPSEEK,
             AIProvider.OPENAI,
             AIProvider.GEMINI, 
-            AIProvider.GROQ,
-            AIProvider.HUGGINGFACE, 
-            AIProvider.OPENROUTER
+            AIProvider.GROQ
         ]
         
         actual_order = settings.get_provider_priority_order()
@@ -61,11 +59,10 @@ class TestProviderPriorityConfiguration:
         settings = AISettings(provider_priority_profile=ProviderPriority.BALANCED)
         
         expected_order = [
+            AIProvider.DEEPSEEK,
             AIProvider.GEMINI,
             AIProvider.GROQ, 
-            AIProvider.OPENAI,
-            AIProvider.HUGGINGFACE, 
-            AIProvider.OPENROUTER
+            AIProvider.OPENAI
         ]
         
         actual_order = settings.get_provider_priority_order()
@@ -93,8 +90,7 @@ class TestProviderPriorityConfiguration:
         # Should fallback to cost optimized when custom is empty
         expected_order = [
             AIProvider.GROQ, 
-            AIProvider.HUGGINGFACE, 
-            AIProvider.OPENROUTER,
+            AIProvider.DEEPSEEK,
             AIProvider.GEMINI, 
             AIProvider.OPENAI
         ]
@@ -159,7 +155,7 @@ class TestAIManagerProviderPriority:
         """Test AI manager uses cost optimized provider order."""
         # Setup mock settings
         mock_ai_settings.get_provider_priority_order.return_value = [
-            AIProvider.GROQ, AIProvider.HUGGINGFACE, AIProvider.OPENROUTER,
+            AIProvider.GROQ, AIProvider.DEEPSEEK,
             AIProvider.GEMINI, AIProvider.OPENAI
         ]
         mock_ai_settings.provider_priority_profile = ProviderPriority.COST_OPTIMIZED
@@ -182,7 +178,7 @@ class TestAIManagerProviderPriority:
             # Mock providers and health
             ai_manager.providers = {
                 AIProviderType.GROQ: Mock(),
-                AIProviderType.HUGGINGFACE: Mock(),
+                AIProviderType.DEEPSEEK: Mock(),
                 AIProviderType.GEMINI: Mock(),
                 AIProviderType.OPENAI: Mock()
             }
@@ -196,14 +192,14 @@ class TestAIManagerProviderPriority:
             # Test provider order
             with patch.object(ai_manager, '_config_to_provider_type') as mock_convert:
                 mock_convert.side_effect = [
-                    AIProviderType.GROQ, AIProviderType.HUGGINGFACE,
-                    AIProviderType.OPENROUTER, AIProviderType.GEMINI, AIProviderType.OPENAI
+                    AIProviderType.GROQ, AIProviderType.DEEPSEEK,
+                    AIProviderType.GEMINI, AIProviderType.OPENAI
                 ]
                 
                 order = ai_manager._get_provider_priority_order()
                 
                 # Should prioritize available providers in configured order
-                expected_available = [AIProviderType.GROQ, AIProviderType.HUGGINGFACE, 
+                expected_available = [AIProviderType.GROQ, AIProviderType.DEEPSEEK, 
                                     AIProviderType.GEMINI, AIProviderType.OPENAI]
                 assert order == expected_available
     
@@ -212,7 +208,7 @@ class TestAIManagerProviderPriority:
         # Setup mock settings for quality first
         mock_ai_settings.get_provider_priority_order.return_value = [
             AIProvider.OPENAI, AIProvider.GEMINI, AIProvider.GROQ,
-            AIProvider.HUGGINGFACE, AIProvider.OPENROUTER
+            AIProvider.DEEPSEEK
         ]
         mock_ai_settings.provider_priority_profile = ProviderPriority.QUALITY_FIRST
         mock_settings.ai = mock_ai_settings
@@ -247,7 +243,7 @@ class TestAIManagerProviderPriority:
             with patch.object(ai_manager, '_config_to_provider_type') as mock_convert:
                 mock_convert.side_effect = [
                     AIProviderType.OPENAI, AIProviderType.GEMINI, AIProviderType.GROQ,
-                    AIProviderType.HUGGINGFACE, AIProviderType.OPENROUTER
+                    AIProviderType.DEEPSEEK
                 ]
                 
                 order = ai_manager._get_provider_priority_order()

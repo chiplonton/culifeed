@@ -211,21 +211,21 @@ class AIProviderProtocol(Protocol):
 
 **Provider Registration:**
 ```python
-# In settings.py - add to AIProvider enum
+# Current 4-provider system in settings.py
 class AIProvider(str, Enum):
-    GEMINI = "gemini"
-    GROQ = "groq" 
-    OPENAI = "openai"
-    CLAUDE = "claude"  # New provider
+    GROQ = "groq"        # Free tier primary
+    DEEPSEEK = "deepseek" # Premium reasoning
+    GEMINI = "gemini"     # Google model
+    OPENAI = "openai"     # Premium model
 
-# In ai/providers/ - create claude_provider.py
-class ClaudeProvider(BaseAIProvider):
+# Example: Adding new provider - create new_provider.py
+class NewProvider(BaseAIProvider):
     def __init__(self, api_key: str):
         super().__init__()
-        self.client = ClaudeClient(api_key)
-    
+        self.client = NewProviderClient(api_key)
+
     async def analyze_relevance(self, article: Article, topic: Topic) -> AIResult:
-        # Implementation specific to Claude API
+        # Implementation specific to new provider API
 ```
 
 ### 📡 Adding New Content Sources
