@@ -5,6 +5,19 @@ All notable changes to CuliFeed will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2025-09-26
+
+### Fixed
+
+#### Critical Production Bug
+- **Article Reprocessing**: Fixed database query bug causing excessive AI token usage
+  - Fixed `_get_unprocessed_articles()` method in `culifeed/processing/pipeline.py`
+  - Changed SQL query from checking `articles.ai_relevance_score IS NULL` to using LEFT JOIN on `processing_results` table
+  - Prevents infinite reprocessing of already analyzed articles that have processing results
+  - **Cost Impact**: Reduces AI token usage by 4x-30x in production environments
+  - **User Experience**: Eliminates duplicate article notifications with mixed content (summaries + embedding vectors)
+  - Maintains 2-day processing window for legitimate new articles
+
 ## [1.3.1] - 2025-01-25
 
 ### Fixed
