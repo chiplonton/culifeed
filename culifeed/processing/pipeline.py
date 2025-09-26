@@ -662,15 +662,18 @@ class ProcessingPipeline:
             List of articles without AI processing results
         """
         with self.db.get_connection() as conn:
-            # Get articles from feeds belonging to this chat that don't have AI scores
+            # Get articles from feeds belonging to this chat that don't have processing results yet
+            # Fixed: Check processing_results table instead of articles.ai_relevance_score
+            # Note: Using created_at for time window (when article was stored) not published_at
             rows = conn.execute("""
                 SELECT a.* FROM articles a
                 JOIN feeds f ON a.source_feed = f.url
+                LEFT JOIN processing_results pr ON a.id = pr.article_id AND pr.chat_id = ?
                 WHERE f.chat_id = ? 
-                AND a.ai_relevance_score IS NULL
+                AND pr.article_id IS NULL
                 AND datetime(a.created_at) >= datetime('now', '-2 days')
                 ORDER BY a.published_at DESC
-            """, (chat_id,)).fetchall()
+            """, (chat_id, chat_id)).fetchall()
             
             articles = []
             for row in rows:
