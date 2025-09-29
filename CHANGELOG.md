@@ -5,6 +5,52 @@ All notable changes to CuliFeed will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2025-09-29
+
+### Added
+
+#### SaaS Pricing System
+- **User-Based Topic Limits**: Implemented comprehensive user-based topic limits (5 topics per FREE user across all chats)
+- **Account Management System**: Complete account management with new `/account` command replacing `/my_topics`
+- **Anti-Abuse Protection**: Prevents multi-chat exploitation by tracking topics per Telegram user ID
+- **Pro Tier Infrastructure**: Ready for future payment integration with subscription tier framework
+
+#### New Bot Commands
+- **`/account`**: Complete account & subscription management dashboard
+- **`/topic_usage`**: Detailed usage statistics and limits display
+- **`/pro_info`**: Pro tier benefits and upgrade information
+- **Enhanced `/topics`**: Shows local topics with global limit awareness
+
+#### Core Infrastructure
+- **UserSubscriptionService**: Complete user subscription management service
+- **Enhanced Database Models**: Topic model with telegram_user_id ownership tracking
+- **SaaS Configuration System**: Environment variables for SaaS mode control
+- **Migration System**: Automated migration script for converting existing channel-based topics
+
+### Changed
+
+#### User Experience Improvements
+- **Simplified Command Structure**: Eliminated confusing `/topics` vs `/my_topics` distinction
+- **Professional Account Dashboard**: Clean bullet-point topic lists with usage statistics
+- **Clear Limit Messaging**: Intuitive upgrade prompts and limit notifications
+- **Seamless Integration**: SaaS features integrate smoothly with existing bot functionality
+
+#### Database Architecture
+- **User Subscriptions Table**: Added user_subscriptions table with tier management
+- **Topic Ownership**: Added telegram_user_id column to topics table for user-based tracking
+- **Data Migration**: Comprehensive migration system preserves existing user data
+
+#### Configuration Management
+- **SaaS Mode Toggle**: `CULIFEED_SAAS__SAAS_MODE` enables/disables SaaS features
+- **Configurable Limits**: `CULIFEED_SAAS__FREE_TIER_TOPIC_LIMIT_PER_USER` for limit configuration
+- **Backward Compatibility**: Fully compatible with self-hosted installations when SaaS mode disabled
+
+### Technical Improvements
+- **Comprehensive Testing**: Fully tested and validated system ready for production deployment
+- **Enhanced Bot Architecture**: Improved command handling and user management systems
+- **Professional UX**: Polished user interface with clear messaging and guidance
+- **Scalable Foundation**: Infrastructure ready for payment integration and additional tiers
+
 ## [1.3.2] - 2025-09-26
 
 ### Fixed
