@@ -25,7 +25,7 @@ class TestTopicCommandsEditedMessages:
     @pytest.fixture
     def test_database(self):
         """Create a temporary test database."""
-        with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
             db_path = f.name
 
         # Create schema
@@ -59,16 +59,36 @@ class TestTopicCommandsEditedMessages:
             cursor = conn.cursor()
 
             # Create test channel
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO channels (chat_id, chat_title, chat_type, active, registered_at, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (chat_id, "Test Channel", "group", True, datetime.now(timezone.utc), datetime.now(timezone.utc)))
+            """,
+                (
+                    chat_id,
+                    "Test Channel",
+                    "group",
+                    True,
+                    datetime.now(timezone.utc),
+                    datetime.now(timezone.utc),
+                ),
+            )
 
             # Create test topic
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO topics (chat_id, name, keywords, confidence_threshold, active, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (chat_id, "test_topic", '["test", "example"]', 0.8, True, datetime.now(timezone.utc)))
+            """,
+                (
+                    chat_id,
+                    "test_topic",
+                    '["test", "example"]',
+                    0.8,
+                    True,
+                    datetime.now(timezone.utc),
+                ),
+            )
 
             conn.commit()
 
@@ -79,7 +99,9 @@ class TestTopicCommandsEditedMessages:
         update = Mock()
         update.effective_chat.id = chat_id
         update.message = AsyncMock()  # Regular message exists
-        update.effective_message = update.message  # Same as message for regular messages
+        update.effective_message = (
+            update.message
+        )  # Same as message for regular messages
         return update
 
     def create_edited_message_update(self, chat_id: str):
@@ -125,7 +147,9 @@ class TestTopicCommandsEditedMessages:
         assert "removed successfully" in call_args
 
     @pytest.mark.asyncio
-    async def test_remove_topic_nonexistent_regular_message(self, handler, setup_test_data):
+    async def test_remove_topic_nonexistent_regular_message(
+        self, handler, setup_test_data
+    ):
         """Test remove topic command for nonexistent topic with regular message."""
         chat_id = setup_test_data
         update = self.create_regular_message_update(chat_id)
@@ -140,7 +164,9 @@ class TestTopicCommandsEditedMessages:
         assert "not found" in call_args
 
     @pytest.mark.asyncio
-    async def test_remove_topic_nonexistent_edited_message(self, handler, setup_test_data):
+    async def test_remove_topic_nonexistent_edited_message(
+        self, handler, setup_test_data
+    ):
         """Test remove topic command for nonexistent topic with edited message."""
         chat_id = setup_test_data
         update = self.create_edited_message_update(chat_id)

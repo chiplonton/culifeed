@@ -24,6 +24,7 @@ from ..utils.logging import get_logger_for_component
 
 class DigestFormat(str, Enum):
     """Available digest formats."""
+
     COMPACT = "compact"
     DETAILED = "detailed"
     SUMMARY = "summary"
@@ -33,34 +34,60 @@ class DigestFormat(str, Enum):
 class DigestFormatter:
     """Formats curated content into various digest styles."""
 
-    def __init__(self, settings: Optional['CuliFeedSettings'] = None, max_message_length: int = 4096):
+    def __init__(
+        self,
+        settings: Optional["CuliFeedSettings"] = None,
+        max_message_length: int = 4096,
+    ):
         """Initialize the digest formatter.
-        
+
         Args:
             settings: CuliFeed settings with configurable thresholds
             max_message_length: Maximum length for a single message
         """
         self.max_message_length = max_message_length
-        self.logger = get_logger_for_component('formatter')
-        
+        self.logger = get_logger_for_component("formatter")
+
         # Import here to avoid circular imports
         if settings is None:
             from ..config.settings import get_settings
+
             settings = get_settings()
-        
+
         self.settings = settings
-        
+
         # Format-specific limits using centralized config for summary length
-        max_summary = self.settings.delivery_quality.max_summary_length  # SINGLE SOURCE OF TRUTH
+        max_summary = (
+            self.settings.delivery_quality.max_summary_length
+        )  # SINGLE SOURCE OF TRUTH
         self.format_limits = {
-            DigestFormat.COMPACT: {'articles_per_topic': 3, 'title_length': 120, 'summary_length': 100},
-            DigestFormat.DETAILED: {'articles_per_topic': 5, 'title_length': 120, 'summary_length': max_summary},  # Use centralized config
-            DigestFormat.SUMMARY: {'articles_per_topic': 8, 'title_length': 120, 'summary_length': 0},
-            DigestFormat.HEADLINES: {'articles_per_topic': 10, 'title_length': 120, 'summary_length': 0}
+            DigestFormat.COMPACT: {
+                "articles_per_topic": 3,
+                "title_length": 120,
+                "summary_length": 100,
+            },
+            DigestFormat.DETAILED: {
+                "articles_per_topic": 5,
+                "title_length": 120,
+                "summary_length": max_summary,
+            },  # Use centralized config
+            DigestFormat.SUMMARY: {
+                "articles_per_topic": 8,
+                "title_length": 120,
+                "summary_length": 0,
+            },
+            DigestFormat.HEADLINES: {
+                "articles_per_topic": 10,
+                "title_length": 120,
+                "summary_length": 0,
+            },
         }
 
-    def format_daily_digest(self, articles_by_topic: Dict[str, List[Article]],
-                          format_type: DigestFormat = DigestFormat.DETAILED) -> List[str]:
+    def format_daily_digest(
+        self,
+        articles_by_topic: Dict[str, List[Article]],
+        format_type: DigestFormat = DigestFormat.DETAILED,
+    ) -> List[str]:
         """Format articles into a daily digest.
 
         Args:
@@ -94,8 +121,9 @@ class DigestFormatter:
 
         return messages
 
-    def format_topic_preview(self, topic_name: str, articles: List[Article],
-                           limit: int = 3) -> str:
+    def format_topic_preview(
+        self, topic_name: str, articles: List[Article], limit: int = 3
+    ) -> str:
         """Format a preview of articles for a specific topic.
 
         Args:
@@ -126,7 +154,9 @@ class DigestFormatter:
 
         return message
 
-    def format_article_summary(self, article: Article, include_content: bool = True) -> str:
+    def format_article_summary(
+        self, article: Article, include_content: bool = True
+    ) -> str:
         """Format a single article for detailed display.
 
         Args:
@@ -158,8 +188,9 @@ class DigestFormatter:
 
         return message
 
-    def _format_digest_header(self, articles_by_topic: Dict[str, List[Article]],
-                             format_type: DigestFormat) -> str:
+    def _format_digest_header(
+        self, articles_by_topic: Dict[str, List[Article]], format_type: DigestFormat
+    ) -> str:
         """Format header for daily digest.
 
         Args:
@@ -175,7 +206,11 @@ class DigestFormatter:
         today = datetime.now(timezone.utc).strftime("%B %d, %Y")
 
         # Get simplified date
-        today_simple = "Today" if datetime.now(timezone.utc).date() == datetime.now(timezone.utc).date() else today
+        today_simple = (
+            "Today"
+            if datetime.now(timezone.utc).date() == datetime.now(timezone.utc).date()
+            else today
+        )
 
         # Format varies by type
         if format_type == DigestFormat.COMPACT:
@@ -185,11 +220,14 @@ class DigestFormatter:
             )
         elif format_type == DigestFormat.HEADLINES:
             header = (
-                f"📈 *Top Headlines*\n"
-                f"📅 {today_simple} • {topic_count} topics\n\n"
+                f"📈 *Top Headlines*\n" f"📅 {today_simple} • {topic_count} topics\n\n"
             )
         else:  # DETAILED or SUMMARY
-            reading_time = max(self.settings.delivery_quality.min_reading_time, total_articles * self.settings.delivery_quality.reading_time_per_article)
+            reading_time = max(
+                self.settings.delivery_quality.min_reading_time,
+                total_articles
+                * self.settings.delivery_quality.reading_time_per_article,
+            )
             header = (
                 f"🌟 *Your Daily Tech Digest*\n"
                 f"📅 {today_simple} • {today}\n\n"
@@ -205,8 +243,13 @@ class DigestFormatter:
 
         return header.rstrip()
 
-    def _format_topic_section(self, topic_name: str, articles: List[Article],
-                             format_type: DigestFormat, limits: Dict[str, int]) -> List[str]:
+    def _format_topic_section(
+        self,
+        topic_name: str,
+        articles: List[Article],
+        format_type: DigestFormat,
+        limits: Dict[str, int],
+    ) -> List[str]:
         """Format articles for a topic section.
 
         Args:
@@ -219,18 +262,20 @@ class DigestFormatter:
             List of formatted messages for this topic
         """
         messages = []
-        article_limit = limits['articles_per_topic']
+        article_limit = limits["articles_per_topic"]
         selected_articles = articles[:article_limit]
 
         if format_type == DigestFormat.HEADLINES:
             # Compact headlines format with better bullets
             message = f"🎯 *{topic_name}* ({len(selected_articles)} articles)\n\n"
             for i, article in enumerate(selected_articles, 1):
-                title = self._truncate_text(article.title, limits['title_length'])
+                title = self._truncate_text(article.title, limits["title_length"])
                 message += f"▶️ {title}\n"
 
             if len(articles) > article_limit:
-                message += f"\n💫 ... and {len(articles) - article_limit} more articles\n"
+                message += (
+                    f"\n💫 ... and {len(articles) - article_limit} more articles\n"
+                )
 
             message += "\n━━━━━━━━━━━━━━━━━━━━\n"
             messages.append(message)
@@ -239,7 +284,7 @@ class DigestFormatter:
             # Title-only format
             message = f"🎯 *{topic_name}*\n\n"
             for i, article in enumerate(selected_articles, 1):
-                title = self._truncate_text(article.title, limits['title_length'])
+                title = self._truncate_text(article.title, limits["title_length"])
                 pub_info = ""
                 if article.published_at:
                     pub_info = f" • {article.published_at.strftime('%m/%d')}"
@@ -258,7 +303,9 @@ class DigestFormatter:
                 # Check message length
                 if len(current_message + article_text) > self.max_message_length:
                     messages.append(current_message.rstrip())
-                    current_message = f"🎯 *{topic_name}* (continued)\n\n" + article_text
+                    current_message = (
+                        f"🎯 *{topic_name}* (continued)\n\n" + article_text
+                    )
                 else:
                     current_message += article_text
 
@@ -267,8 +314,13 @@ class DigestFormatter:
 
         return messages
 
-    def _format_article_item(self, article: Article, index: int,
-                           format_type: DigestFormat, limits: Dict[str, int]) -> str:
+    def _format_article_item(
+        self,
+        article: Article,
+        index: int,
+        format_type: DigestFormat,
+        limits: Dict[str, int],
+    ) -> str:
         """Format a single article item.
 
         Args:
@@ -280,20 +332,24 @@ class DigestFormatter:
         Returns:
             Formatted article text
         """
-        title = self._truncate_text(article.title, limits['title_length'])
+        title = self._truncate_text(article.title, limits["title_length"])
         article_text = f"*{index}. {title}*\n\n"
 
         # Add AI summary for detailed format with improved icon
-        if format_type == DigestFormat.DETAILED and limits['summary_length'] > 0:
+        if format_type == DigestFormat.DETAILED and limits["summary_length"] > 0:
             # Prioritize AI-generated summary over content preview
-            if hasattr(article, 'summary') and article.summary:
-                summary = self._truncate_text(article.summary, limits['summary_length'])
+            if hasattr(article, "summary") and article.summary:
+                summary = self._truncate_text(article.summary, limits["summary_length"])
                 # Add AI indicator if this is an AI-generated summary
-                ai_indicator = "🤖 " if hasattr(article, 'ai_provider') and article.ai_provider else ""
+                ai_indicator = (
+                    "🤖 "
+                    if hasattr(article, "ai_provider") and article.ai_provider
+                    else ""
+                )
                 article_text += f"💡 {ai_indicator}{summary}\n\n"
             elif article.content:
                 content_preview = self._extract_content_preview(
-                    article.content, limits['summary_length']
+                    article.content, limits["summary_length"]
                 )
                 if content_preview:
                     article_text += f"💡 {content_preview}\n\n"
@@ -330,8 +386,9 @@ class DigestFormatter:
 
         return article_text
 
-    def _format_digest_footer(self, articles_by_topic: Dict[str, List[Article]],
-                             format_type: DigestFormat) -> Optional[str]:
+    def _format_digest_footer(
+        self, articles_by_topic: Dict[str, List[Article]], format_type: DigestFormat
+    ) -> Optional[str]:
         """Format footer for daily digest.
 
         Args:
@@ -345,7 +402,10 @@ class DigestFormatter:
             return None
 
         total_articles = sum(len(articles) for articles in articles_by_topic.values())
-        estimated_reading_time = max(self.settings.delivery_quality.min_reading_time, total_articles * self.settings.delivery_quality.reading_time_per_article)  # Configurable reading time per article
+        estimated_reading_time = max(
+            self.settings.delivery_quality.min_reading_time,
+            total_articles * self.settings.delivery_quality.reading_time_per_article,
+        )  # Configurable reading time per article
 
         footer = (
             f"📚 *Enjoyed this digest?*\n"
@@ -389,14 +449,16 @@ class DigestFormatter:
             return ""
 
         # SAFETY: Use centralized config - SINGLE SOURCE OF TRUTH
-        absolute_max = min(max_length, self.settings.delivery_quality.max_summary_length)
-        
+        absolute_max = min(
+            max_length, self.settings.delivery_quality.max_summary_length
+        )
+
         # Clean up content
-        cleaned = re.sub(r'\s+', ' ', content.strip())
+        cleaned = re.sub(r"\s+", " ", content.strip())
 
         # SAFETY: Truncate to absolute max first
         if len(cleaned) > absolute_max * 3:  # If content is way too long
-            cleaned = cleaned[:absolute_max * 3]
+            cleaned = cleaned[: absolute_max * 3]
 
         # Find a good break point
         if len(cleaned) <= absolute_max:
@@ -404,16 +466,19 @@ class DigestFormatter:
 
         # Try to break at sentence end
         preview = cleaned[:absolute_max]
-        last_period = preview.rfind('.')
-        last_exclamation = preview.rfind('!')
-        last_question = preview.rfind('?')
+        last_period = preview.rfind(".")
+        last_exclamation = preview.rfind("!")
+        last_question = preview.rfind("?")
 
         best_break = max(last_period, last_exclamation, last_question)
 
-        if best_break > absolute_max * self.settings.delivery_quality.content_break_threshold:  # If break point is reasonable
-            return cleaned[:best_break + 1]
+        if (
+            best_break
+            > absolute_max * self.settings.delivery_quality.content_break_threshold
+        ):  # If break point is reasonable
+            return cleaned[: best_break + 1]
         else:
-            return cleaned[:absolute_max - 3] + "..."
+            return cleaned[: absolute_max - 3] + "..."
 
     def _extract_source_name(self, source_feed: str) -> str:
         """Extract a readable source name from feed URL.
@@ -427,13 +492,14 @@ class DigestFormatter:
         try:
             # Extract domain name
             import re
-            match = re.search(r'https?://([^/]+)', source_feed)
+
+            match = re.search(r"https?://([^/]+)", source_feed)
             if match:
                 domain = match.group(1)
                 # Remove 'www.' prefix
-                domain = re.sub(r'^www\.', '', domain)
+                domain = re.sub(r"^www\.", "", domain)
                 # Capitalize first letter
-                return domain.split('.')[0].capitalize()
+                return domain.split(".")[0].capitalize()
             return "Unknown Source"
         except:
             return "RSS Feed"
@@ -454,13 +520,13 @@ class DigestFormatter:
         # For longer max_length, try to break at word boundaries
         if max_length > 10:
             truncate_pos = max_length - 3
-            last_space = text.rfind(' ', 0, truncate_pos)
+            last_space = text.rfind(" ", 0, truncate_pos)
 
             # Only break at word boundary if it's not too short
             if last_space > max_length // 2:
                 return text[:last_space] + "..."
 
-        return text[:max_length - 3] + "..."
+        return text[: max_length - 3] + "..."
 
     # ================================================================
     # TEMPLATE-BASED FORMATTING
@@ -477,21 +543,21 @@ class DigestFormatter:
             Formatted message
         """
         templates = {
-            'welcome': (
+            "welcome": (
                 "🎉 *Welcome to CuliFeed!*\n\n"
                 "I'm ready to curate content for *{channel_name}*.\n\n"
                 "Get started with `/help` for available commands."
             ),
-            'setup_complete': (
+            "setup_complete": (
                 "✅ *Setup Complete!*\n\n"
                 "You have {topic_count} topics and {feed_count} feeds configured.\n"
                 "I'll start delivering curated content daily!"
             ),
-            'error_message': (
+            "error_message": (
                 "❌ *{error_type}*\n\n"
                 "{error_message}\n\n"
                 "Use `/help` if you need assistance."
-            )
+            ),
         }
 
         template = templates.get(template_name, "{content}")
@@ -499,7 +565,7 @@ class DigestFormatter:
             return template.format(**kwargs)
         except KeyError as e:
             self.logger.error(f"Missing template variable: {e}")
-            return kwargs.get('content', 'Error in message formatting')
+            return kwargs.get("content", "Error in message formatting")
 
     def estimate_reading_time(self, articles: List[Article]) -> int:
         """Estimate reading time for a list of articles.
@@ -514,8 +580,12 @@ class DigestFormatter:
         for article in articles:
             # Estimate words from title and content
             title_words = len(article.title.split()) if article.title else 0
-            content_words = len(article.content.split()) if article.content else 100  # Default estimate
-            total_words += title_words + min(content_words, 300)  # Cap at 300 words per article
+            content_words = (
+                len(article.content.split()) if article.content else 100
+            )  # Default estimate
+            total_words += title_words + min(
+                content_words, 300
+            )  # Cap at 300 words per article
 
         # Average reading speed: 200 words per minute
         reading_time = max(1, total_words / 200)
@@ -530,5 +600,6 @@ def create_digest_formatter() -> DigestFormatter:
         Configured DigestFormatter instance
     """
     from ..config.settings import get_settings
+
     settings = get_settings()
     return DigestFormatter(settings)
