@@ -21,8 +21,13 @@ from contextlib import asynccontextmanager
 
 from telegram import Update, Bot, BotCommand, ChatMember
 from telegram.ext import (
-    Application, ApplicationBuilder, ContextTypes, CommandHandler,
-    MessageHandler, filters, ChatMemberHandler
+    Application,
+    ApplicationBuilder,
+    ContextTypes,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ChatMemberHandler,
 )
 from telegram.error import TelegramError, BadRequest, Forbidden
 
@@ -53,7 +58,7 @@ class TelegramBotService:
     def __init__(self):
         """Initialize the Telegram bot service."""
         self.settings = get_settings()
-        self.logger = get_logger_for_component('telegram_bot')
+        self.logger = get_logger_for_component("telegram_bot")
         self.db = get_db_manager(self.settings.database.path)
 
         # Initialize repositories
@@ -80,9 +85,7 @@ class TelegramBotService:
         try:
             # Create bot application
             self.application = (
-                ApplicationBuilder()
-                .token(self.settings.telegram.bot_token)
-                .build()
+                ApplicationBuilder().token(self.settings.telegram.bot_token).build()
             )
 
             self.bot = self.application.bot
@@ -102,7 +105,7 @@ class TelegramBotService:
             self.logger.error(f"Failed to initialize Telegram bot: {e}")
             raise CuliFeedTelegramError(
                 f"Bot initialization failed: {e}",
-                error_code=ErrorCode.TELEGRAM_API_ERROR
+                error_code=ErrorCode.TELEGRAM_API_ERROR,
             )
 
     async def _register_handlers(self) -> None:
@@ -113,16 +116,43 @@ class TelegramBotService:
         self.application.add_handler(CommandHandler("status", self._handle_status))
 
         # Topic management commands
-        self.application.add_handler(CommandHandler("topics", self.topic_commands.handle_list_topics))
-        self.application.add_handler(CommandHandler("addtopic", self.topic_commands.handle_add_topic))
-        self.application.add_handler(CommandHandler("removetopic", self.topic_commands.handle_remove_topic))
-        self.application.add_handler(CommandHandler("edittopic", self.topic_commands.handle_edit_topic))
+        self.application.add_handler(
+            CommandHandler("topics", self.topic_commands.handle_list_topics)
+        )
+        self.application.add_handler(
+            CommandHandler("addtopic", self.topic_commands.handle_add_topic)
+        )
+        self.application.add_handler(
+            CommandHandler("removetopic", self.topic_commands.handle_remove_topic)
+        )
+        self.application.add_handler(
+            CommandHandler("edittopic", self.topic_commands.handle_edit_topic)
+        )
+
+        # User account and subscription commands (SaaS features)
+        self.application.add_handler(
+            CommandHandler("account", self.topic_commands.handle_account)
+        )
+        self.application.add_handler(
+            CommandHandler("topic_usage", self.topic_commands.handle_topic_usage)
+        )
+        self.application.add_handler(
+            CommandHandler("pro_info", self.topic_commands.handle_pro_info)
+        )
 
         # Feed management commands
-        self.application.add_handler(CommandHandler("feeds", self.feed_commands.handle_list_feeds))
-        self.application.add_handler(CommandHandler("addfeed", self.feed_commands.handle_add_feed))
-        self.application.add_handler(CommandHandler("removefeed", self.feed_commands.handle_remove_feed))
-        self.application.add_handler(CommandHandler("testfeed", self.feed_commands.handle_test_feed))
+        self.application.add_handler(
+            CommandHandler("feeds", self.feed_commands.handle_list_feeds)
+        )
+        self.application.add_handler(
+            CommandHandler("addfeed", self.feed_commands.handle_add_feed)
+        )
+        self.application.add_handler(
+            CommandHandler("removefeed", self.feed_commands.handle_remove_feed)
+        )
+        self.application.add_handler(
+            CommandHandler("testfeed", self.feed_commands.handle_test_feed)
+        )
 
         # Delivery commands
         self.application.add_handler(CommandHandler("preview", self._handle_preview))
@@ -130,9 +160,11 @@ class TelegramBotService:
 
         # Auto-registration handler
         self.application.add_handler(
-            ChatMemberHandler(self.auto_registration.handle_chat_member_update, ChatMemberHandler.MY_CHAT_MEMBER)
+            ChatMemberHandler(
+                self.auto_registration.handle_chat_member_update,
+                ChatMemberHandler.MY_CHAT_MEMBER,
+            )
         )
-
 
         # Unknown command handler (must be last)
         self.application.add_handler(
@@ -155,6 +187,9 @@ class TelegramBotService:
             BotCommand("addfeed", "Add a new RSS feed"),
             BotCommand("removefeed", "Remove RSS feed"),
             BotCommand("testfeed", "Test feed connectivity"),
+            BotCommand("account", "Manage your account and subscription"),
+            BotCommand("topic_usage", "Show topic usage and limits"),
+            BotCommand("pro_info", "Learn about Pro tier benefits"),
             BotCommand("preview", "Preview latest content"),
             BotCommand("settings", "Show channel settings"),
         ]
@@ -174,7 +209,9 @@ class TelegramBotService:
     # BASIC COMMAND HANDLERS
     # ================================================================
 
-    async def _handle_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def _handle_start(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
         """Handle /start command."""
         try:
             chat_id = str(update.effective_chat.id)
@@ -193,12 +230,14 @@ class TelegramBotService:
                 f"Type `/help` for detailed instructions."
             )
 
-            await update.message.reply_text(start_msg, parse_mode='Markdown')
+            await update.message.reply_text(start_msg, parse_mode="Markdown")
 
         except Exception as e:
             await self._handle_command_error(update, context, "start", e)
 
-    async def _handle_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def _handle_help(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
         """Handle /help command."""
         try:
             help_msg = (
@@ -208,7 +247,7 @@ class TelegramBotService:
                 "• `/help` - Show this help message\n"
                 "• `/status` - Channel status and statistics\n\n"
                 "*🎯 Topic Management:*\n"
-                "• `/topics` - List all topics\n"
+                "• `/topics` - List topics in this chat (with global limits)\n"
                 "• `/addtopic <name> <keywords>` - Add topic\n"
                 "• `/removetopic <name>` - Remove topic\n"
                 "• `/edittopic <name>` - Edit existing topic\n\n"
@@ -217,6 +256,10 @@ class TelegramBotService:
                 "• `/addfeed <url>` - Add RSS feed\n"
                 "• `/removefeed <url>` - Remove feed\n"
                 "• `/testfeed <url>` - Test feed connectivity\n\n"
+                "*💎 Account & Subscription:*\n"
+                "• `/account` - Manage account and subscription\n"
+                "• `/topic_usage` - Show topic usage and limits\n"
+                "• `/pro_info` - Learn about Pro tier benefits\n\n"
                 "*⚙️ Content & Settings:*\n"
                 "• `/preview` - Preview latest content\n"
                 "• `/settings` - Show channel settings\n\n"
@@ -225,12 +268,14 @@ class TelegramBotService:
                 "`/addfeed https://aws.amazon.com/blogs/compute/feed/`"
             )
 
-            await update.message.reply_text(help_msg, parse_mode='Markdown')
+            await update.message.reply_text(help_msg, parse_mode="Markdown")
 
         except Exception as e:
             await self._handle_command_error(update, context, "help", e)
 
-    async def _handle_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def _handle_status(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
         """Handle /status command."""
         try:
             chat_id = str(update.effective_chat.id)
@@ -240,26 +285,26 @@ class TelegramBotService:
                 # Count topics
                 topic_count = conn.execute(
                     "SELECT COUNT(*) FROM topics WHERE chat_id = ? AND active = ?",
-                    (chat_id, True)
+                    (chat_id, True),
                 ).fetchone()[0]
 
                 # Count feeds
                 feed_count = conn.execute(
                     "SELECT COUNT(*) FROM feeds WHERE chat_id = ? AND active = ?",
-                    (chat_id, True)
+                    (chat_id, True),
                 ).fetchone()[0]
 
                 # Count articles processed
                 article_count = conn.execute(
                     "SELECT COUNT(*) FROM articles WHERE source_feed IN ("
                     "SELECT url FROM feeds WHERE chat_id = ? AND active = ?"
-                    ")", (chat_id, True)
+                    ")",
+                    (chat_id, True),
                 ).fetchone()[0]
 
                 # Get channel info
                 channel_row = conn.execute(
-                    "SELECT * FROM channels WHERE chat_id = ?",
-                    (chat_id,)
+                    "SELECT * FROM channels WHERE chat_id = ?", (chat_id,)
                 ).fetchone()
 
             if not channel_row:
@@ -269,7 +314,9 @@ class TelegramBotService:
                 return
 
             channel = dict(channel_row)
-            registered_date = channel['registered_at'][:10] if channel['registered_at'] else "Unknown"
+            registered_date = (
+                channel["registered_at"][:10] if channel["registered_at"] else "Unknown"
+            )
 
             status_msg = (
                 f"📊 *Channel Status*\n\n"
@@ -285,20 +332,25 @@ class TelegramBotService:
             )
 
             if topic_count == 0:
-                status_msg += "⚠️ *No topics configured.* Use `/addtopic` to get started.\n"
+                status_msg += (
+                    "⚠️ *No topics configured.* Use `/addtopic` to get started.\n"
+                )
             if feed_count == 0:
-                status_msg += "⚠️ *No feeds configured.* Use `/addfeed` to add RSS sources.\n"
+                status_msg += (
+                    "⚠️ *No feeds configured.* Use `/addfeed` to add RSS sources.\n"
+                )
 
             if topic_count > 0 and feed_count > 0:
                 status_msg += "✅ *Setup complete!* Ready for content curation."
 
-            await update.message.reply_text(status_msg, parse_mode='Markdown')
+            await update.message.reply_text(status_msg, parse_mode="Markdown")
 
         except Exception as e:
             await self._handle_command_error(update, context, "status", e)
 
-
-    async def _handle_preview(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def _handle_preview(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
         """Handle /preview command."""
         try:
             chat_id = str(update.effective_chat.id)
@@ -312,33 +364,34 @@ class TelegramBotService:
                 if not result.success:
                     await update.message.reply_text(
                         f"❌ Failed to generate preview: {result.error or 'Unknown error'}",
-                        parse_mode='Markdown'
+                        parse_mode="Markdown",
                     )
             else:
                 await update.message.reply_text(
-                    "❌ Message delivery system not initialized",
-                    parse_mode='Markdown'
+                    "❌ Message delivery system not initialized", parse_mode="Markdown"
                 )
 
         except Exception as e:
             await self._handle_command_error(update, context, "preview", e)
 
-    async def _handle_settings(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def _handle_settings(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
         """Handle /settings command."""
         await update.message.reply_text(
             "🚧 Settings management coming soon!\n"
             "This will show and allow editing channel settings."
         )
 
-
-    async def _handle_unknown_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def _handle_unknown_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
         """Handle unknown commands."""
         try:
             unknown_msg = (
-                "❓ *Unknown command*\n\n"
-                "Type `/help` to see all available commands."
+                "❓ *Unknown command*\n\n" "Type `/help` to see all available commands."
             )
-            await update.message.reply_text(unknown_msg, parse_mode='Markdown')
+            await update.message.reply_text(unknown_msg, parse_mode="Markdown")
         except Exception as e:
             self.logger.error(f"Error handling unknown command: {e}")
 
@@ -352,8 +405,7 @@ class TelegramBotService:
 
         with self.db.get_connection() as conn:
             existing = conn.execute(
-                "SELECT * FROM channels WHERE chat_id = ?",
-                (chat_id,)
+                "SELECT * FROM channels WHERE chat_id = ?", (chat_id,)
             ).fetchone()
 
             if not existing:
@@ -361,24 +413,39 @@ class TelegramBotService:
                 channel = Channel(
                     chat_id=chat_id,
                     chat_title=chat.title or chat.first_name or "Unknown",
-                    chat_type=ChatType.PRIVATE if chat.type == "private" else ChatType.GROUP,
+                    chat_type=(
+                        ChatType.PRIVATE if chat.type == "private" else ChatType.GROUP
+                    ),
                     active=True,
-                    registered_at=datetime.now(timezone.utc)
+                    registered_at=datetime.now(timezone.utc),
                 )
 
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT INTO channels
                     (chat_id, chat_title, chat_type, active, registered_at, created_at)
                     VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    channel.chat_id, channel.chat_title, channel.chat_type.value,
-                    channel.active, channel.registered_at, channel.registered_at
-                ))
+                """,
+                    (
+                        channel.chat_id,
+                        channel.chat_title,
+                        channel.chat_type.value,
+                        channel.active,
+                        channel.registered_at,
+                        channel.registered_at,
+                    ),
+                )
                 conn.commit()
 
                 self.logger.info(f"Auto-registered channel: {chat_id}")
 
-    async def _handle_command_error(self, update: Update, context: ContextTypes.DEFAULT_TYPE, command: str, error: Exception) -> None:
+    async def _handle_command_error(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        command: str,
+        error: Exception,
+    ) -> None:
         """Handle errors in command processing."""
         self.logger.error(f"Error in /{command} command: {error}")
 
@@ -387,7 +454,7 @@ class TelegramBotService:
                 f"❌ *Error processing /{command} command*\n\n"
                 f"Please try again or contact support if the issue persists."
             )
-            await update.message.reply_text(error_msg, parse_mode='Markdown')
+            await update.message.reply_text(error_msg, parse_mode="Markdown")
         except Exception as e:
             self.logger.error(f"Failed to send error message: {e}")
 
@@ -403,8 +470,7 @@ class TelegramBotService:
         self.logger.info("Starting Telegram bot polling...")
         # Let run_polling handle everything - it manages its own event loop
         await self.application.run_polling(
-            allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True
+            allowed_updates=Update.ALL_TYPES, drop_pending_updates=True
         )
 
     async def stop(self) -> None:
@@ -420,28 +486,25 @@ class TelegramBotService:
         """Run the bot using the recommended python-telegram-bot pattern."""
         # Create application
         self.application = (
-            ApplicationBuilder()
-            .token(self.settings.telegram.bot_token)
-            .build()
+            ApplicationBuilder().token(self.settings.telegram.bot_token).build()
         )
-        
+
         self.bot = self.application.bot
-        
+
         # Initialize message sender with bot instance
         self.message_sender = MessageSender(self.bot, self.db)
-        
+
         # Register handlers synchronously
         self._register_handlers_sync()
-        
+
         # Set up bot commands menu
         self._setup_bot_commands_sync()
-        
+
         # Start polling - this manages the entire lifecycle
         self.application.run_polling(
-            allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True
+            allowed_updates=Update.ALL_TYPES, drop_pending_updates=True
         )
-    
+
     def _register_handlers_sync(self) -> None:
         """Register all command and message handlers synchronously."""
         # Command handlers
@@ -450,16 +513,43 @@ class TelegramBotService:
         self.application.add_handler(CommandHandler("status", self._handle_status))
 
         # Topic management commands
-        self.application.add_handler(CommandHandler("topics", self.topic_commands.handle_list_topics))
-        self.application.add_handler(CommandHandler("addtopic", self.topic_commands.handle_add_topic))
-        self.application.add_handler(CommandHandler("removetopic", self.topic_commands.handle_remove_topic))
-        self.application.add_handler(CommandHandler("edittopic", self.topic_commands.handle_edit_topic))
+        self.application.add_handler(
+            CommandHandler("topics", self.topic_commands.handle_list_topics)
+        )
+        self.application.add_handler(
+            CommandHandler("addtopic", self.topic_commands.handle_add_topic)
+        )
+        self.application.add_handler(
+            CommandHandler("removetopic", self.topic_commands.handle_remove_topic)
+        )
+        self.application.add_handler(
+            CommandHandler("edittopic", self.topic_commands.handle_edit_topic)
+        )
+
+        # User account and subscription commands (SaaS features)
+        self.application.add_handler(
+            CommandHandler("account", self.topic_commands.handle_account)
+        )
+        self.application.add_handler(
+            CommandHandler("topic_usage", self.topic_commands.handle_topic_usage)
+        )
+        self.application.add_handler(
+            CommandHandler("pro_info", self.topic_commands.handle_pro_info)
+        )
 
         # Feed management commands
-        self.application.add_handler(CommandHandler("feeds", self.feed_commands.handle_list_feeds))
-        self.application.add_handler(CommandHandler("addfeed", self.feed_commands.handle_add_feed))
-        self.application.add_handler(CommandHandler("removefeed", self.feed_commands.handle_remove_feed))
-        self.application.add_handler(CommandHandler("testfeed", self.feed_commands.handle_test_feed))
+        self.application.add_handler(
+            CommandHandler("feeds", self.feed_commands.handle_list_feeds)
+        )
+        self.application.add_handler(
+            CommandHandler("addfeed", self.feed_commands.handle_add_feed)
+        )
+        self.application.add_handler(
+            CommandHandler("removefeed", self.feed_commands.handle_remove_feed)
+        )
+        self.application.add_handler(
+            CommandHandler("testfeed", self.feed_commands.handle_test_feed)
+        )
 
         # Delivery commands
         self.application.add_handler(CommandHandler("preview", self._handle_preview))
@@ -467,9 +557,11 @@ class TelegramBotService:
 
         # Auto-registration handler
         self.application.add_handler(
-            ChatMemberHandler(self.auto_registration.handle_chat_member_update, ChatMemberHandler.MY_CHAT_MEMBER)
+            ChatMemberHandler(
+                self.auto_registration.handle_chat_member_update,
+                ChatMemberHandler.MY_CHAT_MEMBER,
+            )
         )
-
 
         # Unknown command handler (must be last)
         self.application.add_handler(
@@ -492,6 +584,9 @@ class TelegramBotService:
             BotCommand("addfeed", "Add a new RSS feed"),
             BotCommand("removefeed", "Remove RSS feed"),
             BotCommand("testfeed", "Test feed connectivity"),
+            BotCommand("account", "Manage your account and subscription"),
+            BotCommand("topic_usage", "Show topic usage and limits"),
+            BotCommand("pro_info", "Learn about Pro tier benefits"),
             BotCommand("preview", "Preview latest content"),
             BotCommand("settings", "Show channel settings"),
         ]
@@ -502,14 +597,16 @@ class TelegramBotService:
                 await self.bot.set_my_commands(commands)
                 self._commands = commands
                 self.logger.info(f"Set {len(commands)} bot commands")
-            
+
             # Add to post_init hook instead of running immediately
             self.application.post_init = setup_commands
-            
+
         except Exception as e:
             self.logger.warning(f"Failed to set bot commands: {e}")
 
-    async def send_message(self, chat_id: str, message: str, parse_mode: str = 'Markdown') -> bool:
+    async def send_message(
+        self, chat_id: str, message: str, parse_mode: str = "Markdown"
+    ) -> bool:
         """Send a message to a specific chat.
 
         Args:
@@ -526,9 +623,7 @@ class TelegramBotService:
 
         try:
             await self.bot.send_message(
-                chat_id=chat_id,
-                text=message,
-                parse_mode=parse_mode
+                chat_id=chat_id, text=message, parse_mode=parse_mode
             )
             return True
 
@@ -554,10 +649,14 @@ class TelegramBotService:
         try:
             chat = await self.bot.get_chat(chat_id)
             return {
-                'id': chat.id,
-                'title': chat.title,
-                'type': chat.type,
-                'member_count': await self.bot.get_chat_member_count(chat_id) if chat.type != 'private' else 1
+                "id": chat.id,
+                "title": chat.title,
+                "type": chat.type,
+                "member_count": (
+                    await self.bot.get_chat_member_count(chat_id)
+                    if chat.type != "private"
+                    else 1
+                ),
             }
         except Exception as e:
             self.logger.error(f"Failed to get chat info for {chat_id}: {e}")
