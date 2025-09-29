@@ -25,7 +25,7 @@ class TestMessageSender:
     @pytest.fixture
     def temp_db(self):
         """Create temporary database for testing."""
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.db')
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
         temp_file.close()
         yield temp_file.name
         os.unlink(temp_file.name)
@@ -35,6 +35,7 @@ class TestMessageSender:
         """Create database connection."""
         # Initialize schema
         from culifeed.database.schema import DatabaseSchema
+
         schema = DatabaseSchema(temp_db)
         schema.create_tables()
 
@@ -57,36 +58,41 @@ class TestMessageSender:
         """Create sample articles for testing."""
         return [
             Article(
-                id='1',
-                title='Test Article 1',
-                url='https://example.com/1',
-                content='Content of article 1',
+                id="1",
+                title="Test Article 1",
+                url="https://example.com/1",
+                content="Content of article 1",
                 published_at=datetime.now(timezone.utc),
-                source_feed='https://feed1.com',
-                content_hash='hash1',
-                created_at=datetime.now(timezone.utc)
+                source_feed="https://feed1.com",
+                content_hash="hash1",
+                created_at=datetime.now(timezone.utc),
             ),
             Article(
-                id='2',
-                title='Test Article 2',
-                url='https://example.com/2',
-                content='Content of article 2',
+                id="2",
+                title="Test Article 2",
+                url="https://example.com/2",
+                content="Content of article 2",
                 published_at=datetime.now(timezone.utc),
-                source_feed='https://feed2.com',
-                content_hash='hash2',
-                created_at=datetime.now(timezone.utc)
-            )
+                source_feed="https://feed2.com",
+                content_hash="hash2",
+                created_at=datetime.now(timezone.utc),
+            ),
         ]
 
     @pytest.mark.asyncio
-    async def test_deliver_daily_digest_success(self, message_sender, mock_bot, sample_articles):
+    async def test_deliver_daily_digest_success(
+        self, message_sender, mock_bot, sample_articles
+    ):
         """Test successful daily digest delivery."""
         chat_id = "12345"
 
-        with patch.object(message_sender, '_get_articles_for_delivery', return_value={
-            'AI': sample_articles[:1],
-            'Cloud': sample_articles[1:]
-        }), patch.object(message_sender, '_send_message', return_value=True) as mock_send:
+        with patch.object(
+            message_sender,
+            "_get_articles_for_delivery",
+            return_value={"AI": sample_articles[:1], "Cloud": sample_articles[1:]},
+        ), patch.object(
+            message_sender, "_send_message", return_value=True
+        ) as mock_send:
 
             result = await message_sender.deliver_daily_digest(chat_id)
 
@@ -99,7 +105,9 @@ class TestMessageSender:
         """Test daily digest with no content."""
         chat_id = "12345"
 
-        with patch.object(message_sender, '_get_articles_for_delivery', return_value={}):
+        with patch.object(
+            message_sender, "_get_articles_for_delivery", return_value={}
+        ):
             result = await message_sender.deliver_daily_digest(chat_id)
 
         assert result.success is True
@@ -112,9 +120,11 @@ class TestMessageSender:
         """Test successful preview delivery."""
         chat_id = "12345"
 
-        with patch.object(message_sender, '_get_articles_for_delivery', return_value={
-            'AI': sample_articles[:1]
-        }), patch.object(message_sender, '_send_message', return_value=True):
+        with patch.object(
+            message_sender,
+            "_get_articles_for_delivery",
+            return_value={"AI": sample_articles[:1]},
+        ), patch.object(message_sender, "_send_message", return_value=True):
 
             result = await message_sender.deliver_preview(chat_id, limit=3)
 
@@ -127,8 +137,9 @@ class TestMessageSender:
         """Test preview with no content."""
         chat_id = "12345"
 
-        with patch.object(message_sender, '_get_articles_for_delivery', return_value={}), \
-             patch.object(message_sender, '_send_message', return_value=True):
+        with patch.object(
+            message_sender, "_get_articles_for_delivery", return_value={}
+        ), patch.object(message_sender, "_send_message", return_value=True):
 
             result = await message_sender.deliver_preview(chat_id)
 
@@ -187,7 +198,7 @@ class TestMessageSender:
         """Test delivery test functionality."""
         chat_id = "12345"
 
-        with patch.object(message_sender, '_send_message', return_value=True):
+        with patch.object(message_sender, "_send_message", return_value=True):
             result = await message_sender.test_delivery(chat_id)
 
         assert result.success is True
@@ -202,17 +213,20 @@ class TestMessageSender:
 
         # Create a test channel first
         with db_connection.get_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO channels (chat_id, chat_title, chat_type, active, registered_at, created_at)
                 VALUES (?, 'Test Channel', 'group', 1, datetime('now'), datetime('now'))
-            """, (chat_id,))
+            """,
+                (chat_id,),
+            )
             conn.commit()
 
         stats = message_sender.get_delivery_statistics(chat_id)
 
-        assert stats['channel_id'] == chat_id
-        assert 'channel_title' in stats
-        assert 'articles_available' in stats
+        assert stats["channel_id"] == chat_id
+        assert "channel_title" in stats
+        assert "articles_available" in stats
 
 
 class TestDigestFormatter:
@@ -228,70 +242,69 @@ class TestDigestFormatter:
         """Create sample articles for testing."""
         return [
             Article(
-                id='1',
-                title='AI Breakthrough in Machine Learning',
-                url='https://example.com/1',
-                content='Detailed content about AI breakthrough...',
+                id="1",
+                title="AI Breakthrough in Machine Learning",
+                url="https://example.com/1",
+                content="Detailed content about AI breakthrough...",
                 published_at=datetime.now(timezone.utc),
-                source_feed='https://techfeed.com/rss',
-                content_hash='hash1',
-                created_at=datetime.now(timezone.utc)
+                source_feed="https://techfeed.com/rss",
+                content_hash="hash1",
+                created_at=datetime.now(timezone.utc),
             ),
             Article(
-                id='2',
-                title='Cloud Computing Trends for 2024',
-                url='https://example.com/2',
-                content='Analysis of cloud computing trends...',
+                id="2",
+                title="Cloud Computing Trends for 2024",
+                url="https://example.com/2",
+                content="Analysis of cloud computing trends...",
                 published_at=datetime.now(timezone.utc),
-                source_feed='https://cloudfeed.com/rss',
-                content_hash='hash2',
-                created_at=datetime.now(timezone.utc)
-            )
+                source_feed="https://cloudfeed.com/rss",
+                content_hash="hash2",
+                created_at=datetime.now(timezone.utc),
+            ),
         ]
 
     def test_format_daily_digest_detailed(self, formatter, sample_articles):
         """Test detailed format daily digest."""
-        articles_by_topic = {
-            'AI': sample_articles[:1],
-            'Cloud': sample_articles[1:]
-        }
+        articles_by_topic = {"AI": sample_articles[:1], "Cloud": sample_articles[1:]}
 
-        messages = formatter.format_daily_digest(articles_by_topic, DigestFormat.DETAILED)
+        messages = formatter.format_daily_digest(
+            articles_by_topic, DigestFormat.DETAILED
+        )
 
         assert len(messages) >= 2  # Header + content
-        assert 'Your Daily Tech Digest' in messages[0]
-        assert any('AI' in msg for msg in messages)
-        assert any('Cloud' in msg for msg in messages)
+        assert "Your Daily Tech Digest" in messages[0]
+        assert any("AI" in msg for msg in messages)
+        assert any("Cloud" in msg for msg in messages)
 
     def test_format_daily_digest_compact(self, formatter, sample_articles):
         """Test compact format daily digest."""
-        articles_by_topic = {
-            'AI': sample_articles[:1]
-        }
+        articles_by_topic = {"AI": sample_articles[:1]}
 
-        messages = formatter.format_daily_digest(articles_by_topic, DigestFormat.COMPACT)
+        messages = formatter.format_daily_digest(
+            articles_by_topic, DigestFormat.COMPACT
+        )
 
         assert len(messages) >= 1
-        assert 'Daily Brief' in messages[0]
+        assert "Daily Brief" in messages[0]
 
     def test_format_daily_digest_headlines(self, formatter, sample_articles):
         """Test headlines format daily digest."""
-        articles_by_topic = {
-            'AI': sample_articles[:1]
-        }
+        articles_by_topic = {"AI": sample_articles[:1]}
 
-        messages = formatter.format_daily_digest(articles_by_topic, DigestFormat.HEADLINES)
+        messages = formatter.format_daily_digest(
+            articles_by_topic, DigestFormat.HEADLINES
+        )
 
         assert len(messages) >= 1
-        assert 'Headlines' in messages[0]
+        assert "Headlines" in messages[0]
 
     def test_format_daily_digest_summary(self, formatter, sample_articles):
         """Test summary format daily digest."""
-        articles_by_topic = {
-            'AI': sample_articles[:1]
-        }
+        articles_by_topic = {"AI": sample_articles[:1]}
 
-        messages = formatter.format_daily_digest(articles_by_topic, DigestFormat.SUMMARY)
+        messages = formatter.format_daily_digest(
+            articles_by_topic, DigestFormat.SUMMARY
+        )
 
         assert len(messages) >= 1
 
@@ -300,7 +313,7 @@ class TestDigestFormatter:
         messages = formatter.format_daily_digest({})
 
         assert len(messages) == 1
-        assert 'No curated articles today' in messages[0]
+        assert "No curated articles today" in messages[0]
 
     def test_format_topic_preview(self, formatter, sample_articles):
         """Test topic preview formatting."""
@@ -324,7 +337,7 @@ class TestDigestFormatter:
 
         assert article.title in summary
         assert str(article.url) in summary  # URL needs to be converted to string
-        assert '📄' in summary
+        assert "📄" in summary
 
     def test_extract_content_preview(self, formatter):
         """Test content preview extraction."""
@@ -345,7 +358,9 @@ class TestDigestFormatter:
         """Test source name extraction from invalid URL."""
         source_name = formatter._extract_source_name("invalid-url")
 
-        assert source_name == "Unknown Source"  # This is what the implementation actually returns
+        assert (
+            source_name == "Unknown Source"
+        )  # This is what the implementation actually returns
 
     def test_truncate_text(self, formatter):
         """Test text truncation."""
@@ -353,7 +368,7 @@ class TestDigestFormatter:
         truncated = formatter._truncate_text(long_text, 20)
 
         assert len(truncated) <= 20
-        assert truncated.endswith('...')
+        assert truncated.endswith("...")
 
     def test_truncate_text_short(self, formatter):
         """Test text truncation with short text."""
@@ -364,18 +379,15 @@ class TestDigestFormatter:
 
     def test_format_with_template(self, formatter):
         """Test template-based formatting."""
-        message = formatter.format_with_template(
-            'welcome',
-            channel_name='Test Channel'
-        )
+        message = formatter.format_with_template("welcome", channel_name="Test Channel")
 
-        assert 'Welcome to CuliFeed' in message
-        assert 'Test Channel' in message
+        assert "Welcome to CuliFeed" in message
+        assert "Test Channel" in message
 
     def test_format_with_template_error(self, formatter):
         """Test template formatting with missing variables."""
         message = formatter.format_with_template(
-            'setup_complete',
+            "setup_complete",
             # Missing required variables
         )
 
@@ -404,9 +416,9 @@ class TestDigestFormatter:
 
         # Check limit structures
         for format_type, limits in formatter.format_limits.items():
-            assert 'articles_per_topic' in limits
-            assert 'title_length' in limits
-            assert 'summary_length' in limits
+            assert "articles_per_topic" in limits
+            assert "title_length" in limits
+            assert "summary_length" in limits
 
 
 class TestMessageDeliveryIntegration:
@@ -415,7 +427,7 @@ class TestMessageDeliveryIntegration:
     @pytest.fixture
     def temp_db(self):
         """Create temporary database for testing."""
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.db')
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
         temp_file.close()
         yield temp_file.name
         os.unlink(temp_file.name)
@@ -425,6 +437,7 @@ class TestMessageDeliveryIntegration:
         """Create database connection."""
         # Initialize schema
         from culifeed.database.schema import DatabaseSchema
+
         schema = DatabaseSchema(temp_db)
         schema.create_tables()
 
@@ -445,35 +458,46 @@ class TestMessageDeliveryIntegration:
         # Create test data
         with db_connection.get_connection() as conn:
             # Create channel
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO channels (chat_id, chat_title, chat_type, active, registered_at, created_at)
                 VALUES (?, 'Test Channel', 'group', 1, datetime('now'), datetime('now'))
-            """, (chat_id,))
+            """,
+                (chat_id,),
+            )
 
             # Create feed
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO feeds (chat_id, url, title, active, created_at)
                 VALUES (?, 'https://test.com/feed', 'Test Feed', 1, datetime('now'))
-            """, (chat_id,))
+            """,
+                (chat_id,),
+            )
 
             # Create article
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO articles (id, title, url, content, published_at, source_feed, content_hash, created_at)
                 VALUES ('1', 'Test Article', 'https://test.com/article', 'Content', datetime('now'), 'https://test.com/feed', 'hash1', datetime('now'))
-            """)
+            """
+            )
 
             # Create topic
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO topics (chat_id, name, keywords, active, created_at)
                 VALUES (?, 'AI', '["test"]', 1, datetime('now'))
-            """, (chat_id,))
+            """,
+                (chat_id,),
+            )
 
             conn.commit()
 
         # Create message sender and test delivery
         message_sender = MessageSender(mock_bot, db_connection)
 
-        with patch.object(message_sender, '_send_message', return_value=True):
+        with patch.object(message_sender, "_send_message", return_value=True):
             result = await message_sender.deliver_daily_digest(chat_id)
 
         assert result.success is True

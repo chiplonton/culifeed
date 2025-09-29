@@ -29,6 +29,7 @@ from ..utils.validators import URLValidator, ValidationError
 @dataclass
 class FeedFetchSummary:
     """Summary of a single feed fetch operation."""
+
     url: str
     success: bool
     title: Optional[str] = None
@@ -45,6 +46,7 @@ class FeedFetchSummary:
 @dataclass
 class BatchProcessingSummary:
     """Summary of batch feed processing operation."""
+
     total_feeds: int
     successful_feeds: int
     failed_feeds: int
@@ -56,6 +58,7 @@ class BatchProcessingSummary:
 @dataclass
 class PipelineTestSummary:
     """Summary of pipeline testing operation."""
+
     total_tests: int
     passed_tests: int
     failed_tests: int
@@ -81,7 +84,7 @@ class ManualProcessingService:
         self.feed_repository = FeedRepository(db_connection)
         self.topic_repository = TopicRepository(db_connection)
         self.feed_fetcher = FeedFetcher(max_concurrent=3, timeout=30)
-        self.logger = get_logger_for_component('manual_processing')
+        self.logger = get_logger_for_component("manual_processing")
 
     async def fetch_single_feed(self, url: str) -> FeedFetchSummary:
         """Fetch and analyze a single RSS feed.
@@ -105,18 +108,26 @@ class ManualProcessingService:
                 return FeedFetchSummary(
                     url=url,
                     success=False,
-                    error_message="Failed to fetch or parse RSS feed"
+                    error_message="Failed to fetch or parse RSS feed",
                 )
 
             # Extract sample articles
             sample_articles = []
             for article in articles[:3]:  # First 3 articles
-                sample_articles.append({
-                    'title': article.title or "Untitled",
-                    'published': article.published.isoformat() if article.published else None,
-                    'link': article.link,
-                    'content_preview': (article.content[:150] + "...") if article.content and len(article.content) > 150 else article.content
-                })
+                sample_articles.append(
+                    {
+                        "title": article.title or "Untitled",
+                        "published": (
+                            article.published.isoformat() if article.published else None
+                        ),
+                        "link": article.link,
+                        "content_preview": (
+                            (article.content[:150] + "...")
+                            if article.content and len(article.content) > 150
+                            else article.content
+                        ),
+                    }
+                )
 
             return FeedFetchSummary(
                 url=url,
@@ -124,22 +135,16 @@ class ManualProcessingService:
                 title=feed_metadata.title,
                 description=feed_metadata.description,
                 article_count=len(articles),
-                sample_articles=sample_articles
+                sample_articles=sample_articles,
             )
 
         except ValidationError as e:
             return FeedFetchSummary(
-                url=url,
-                success=False,
-                error_message=f"Invalid URL: {str(e)}"
+                url=url, success=False, error_message=f"Invalid URL: {str(e)}"
             )
         except Exception as e:
             self.logger.error(f"Error fetching feed {url}: {e}")
-            return FeedFetchSummary(
-                url=url,
-                success=False,
-                error_message=str(e)
-            )
+            return FeedFetchSummary(url=url, success=False, error_message=str(e))
 
     async def process_feeds_for_chat(self, chat_id: str) -> BatchProcessingSummary:
         """Process all active feeds for a specific chat.
@@ -165,7 +170,7 @@ class ManualProcessingService:
                     failed_feeds=0,
                     total_articles=0,
                     feed_results=[],
-                    processing_time_seconds=0.0
+                    processing_time_seconds=0.0,
                 )
 
             # Prepare URLs for batch processing
@@ -193,36 +198,44 @@ class ManualProcessingService:
                         article_count = len(articles)
                         total_articles += article_count
 
-                        self.logger.info(f"Processed {feed_title}: {article_count} articles stored")
+                        self.logger.info(
+                            f"Processed {feed_title}: {article_count} articles stored"
+                        )
 
-                        feed_results.append({
-                            'title': feed_title,
-                            'url': feed_url,
-                            'success': True,
-                            'article_count': article_count,
-                            'error': None
-                        })
+                        feed_results.append(
+                            {
+                                "title": feed_title,
+                                "url": feed_url,
+                                "success": True,
+                                "article_count": article_count,
+                                "error": None,
+                            }
+                        )
                     else:
                         failed += 1
-                        feed_results.append({
-                            'title': feed_title,
-                            'url': feed_url,
-                            'success': False,
-                            'article_count': 0,
-                            'error': "Failed to fetch or parse feed"
-                        })
+                        feed_results.append(
+                            {
+                                "title": feed_title,
+                                "url": feed_url,
+                                "success": False,
+                                "article_count": 0,
+                                "error": "Failed to fetch or parse feed",
+                            }
+                        )
 
                 except Exception as e:
                     failed += 1
                     error_msg = str(e)
                     self.logger.error(f"Error processing feed {feed_url}: {error_msg}")
-                    feed_results.append({
-                        'title': feed_title,
-                        'url': feed_url,
-                        'success': False,
-                        'article_count': 0,
-                        'error': error_msg
-                    })
+                    feed_results.append(
+                        {
+                            "title": feed_title,
+                            "url": feed_url,
+                            "success": False,
+                            "article_count": 0,
+                            "error": error_msg,
+                        }
+                    )
 
             end_time = datetime.now()
             processing_time = (end_time - start_time).total_seconds()
@@ -233,7 +246,7 @@ class ManualProcessingService:
                 failed_feeds=failed,
                 total_articles=total_articles,
                 feed_results=feed_results,
-                processing_time_seconds=processing_time
+                processing_time_seconds=processing_time,
             )
 
         except Exception as e:
@@ -246,14 +259,16 @@ class ManualProcessingService:
                 successful_feeds=0,
                 failed_feeds=1,
                 total_articles=0,
-                feed_results=[{
-                    'title': 'Processing Error',
-                    'url': 'N/A',
-                    'success': False,
-                    'article_count': 0,
-                    'error': str(e)
-                }],
-                processing_time_seconds=processing_time
+                feed_results=[
+                    {
+                        "title": "Processing Error",
+                        "url": "N/A",
+                        "success": False,
+                        "article_count": 0,
+                        "error": str(e),
+                    }
+                ],
+                processing_time_seconds=processing_time,
             )
 
     async def process_default_test_feeds(self) -> BatchProcessingSummary:
@@ -265,7 +280,7 @@ class ManualProcessingService:
         test_feeds = [
             "https://aws.amazon.com/blogs/compute/feed/",
             "https://blog.cloudflare.com/rss/",
-            "https://kubernetes.io/feed.xml"
+            "https://kubernetes.io/feed.xml",
         ]
 
         start_time = datetime.now()
@@ -288,23 +303,27 @@ class ManualProcessingService:
                 if result and result.success:
                     successful += 1
                     total_articles += result.article_count
-                    feed_results.append({
-                        'title': f"Test Feed {i+1}",
-                        'url': feed_url,
-                        'success': True,
-                        'article_count': result.article_count,
-                        'error': None
-                    })
+                    feed_results.append(
+                        {
+                            "title": f"Test Feed {i+1}",
+                            "url": feed_url,
+                            "success": True,
+                            "article_count": result.article_count,
+                            "error": None,
+                        }
+                    )
                 else:
                     failed += 1
                     error_msg = result.error if result else "No result returned"
-                    feed_results.append({
-                        'title': f"Test Feed {i+1}",
-                        'url': feed_url,
-                        'success': False,
-                        'article_count': 0,
-                        'error': error_msg
-                    })
+                    feed_results.append(
+                        {
+                            "title": f"Test Feed {i+1}",
+                            "url": feed_url,
+                            "success": False,
+                            "article_count": 0,
+                            "error": error_msg,
+                        }
+                    )
 
             end_time = datetime.now()
             processing_time = (end_time - start_time).total_seconds()
@@ -315,7 +334,7 @@ class ManualProcessingService:
                 failed_feeds=failed,
                 total_articles=total_articles,
                 feed_results=feed_results,
-                processing_time_seconds=processing_time
+                processing_time_seconds=processing_time,
             )
 
         except Exception as e:
@@ -328,17 +347,21 @@ class ManualProcessingService:
                 successful_feeds=0,
                 failed_feeds=len(test_feeds),
                 total_articles=0,
-                feed_results=[{
-                    'title': 'Processing Error',
-                    'url': 'N/A',
-                    'success': False,
-                    'article_count': 0,
-                    'error': str(e)
-                }],
-                processing_time_seconds=processing_time
+                feed_results=[
+                    {
+                        "title": "Processing Error",
+                        "url": "N/A",
+                        "success": False,
+                        "article_count": 0,
+                        "error": str(e),
+                    }
+                ],
+                processing_time_seconds=processing_time,
             )
 
-    async def run_pipeline_tests(self, chat_id: str = "test_chat") -> PipelineTestSummary:
+    async def run_pipeline_tests(
+        self, chat_id: str = "test_chat"
+    ) -> PipelineTestSummary:
         """Run comprehensive pipeline tests.
 
         Args:
@@ -354,28 +377,32 @@ class ManualProcessingService:
             try:
                 import sys
                 from pathlib import Path
+
                 project_root = Path(__file__).parent.parent.parent
                 sys.path.insert(0, str(project_root))
 
                 from tests.integration.test_feed_processing import FeedProcessingTester
+
                 tester = FeedProcessingTester()
             except ImportError:
                 return PipelineTestSummary(
                     total_tests=0,
                     passed_tests=0,
                     failed_tests=1,
-                    test_results=[{
-                        'name': 'Test Framework Import',
-                        'success': False,
-                        'details': 'Test framework not available'
-                    }],
-                    chat_id=chat_id
+                    test_results=[
+                        {
+                            "name": "Test Framework Import",
+                            "success": False,
+                            "details": "Test framework not available",
+                        }
+                    ],
+                    chat_id=chat_id,
                 )
 
             # Test feeds
             test_feeds = [
                 "https://aws.amazon.com/blogs/compute/feed/",
-                "https://blog.cloudflare.com/rss/"
+                "https://blog.cloudflare.com/rss/",
             ]
 
             test_results = []
@@ -387,76 +414,94 @@ class ManualProcessingService:
             try:
                 if tester.test_single_feed(test_feeds[0], chat_id):
                     passed_tests += 1
-                    test_results.append({
-                        'name': 'Single Feed Processing',
-                        'success': True,
-                        'details': f'Successfully processed {test_feeds[0]}'
-                    })
+                    test_results.append(
+                        {
+                            "name": "Single Feed Processing",
+                            "success": True,
+                            "details": f"Successfully processed {test_feeds[0]}",
+                        }
+                    )
                 else:
-                    test_results.append({
-                        'name': 'Single Feed Processing',
-                        'success': False,
-                        'details': 'Feed processing failed'
-                    })
+                    test_results.append(
+                        {
+                            "name": "Single Feed Processing",
+                            "success": False,
+                            "details": "Feed processing failed",
+                        }
+                    )
             except Exception as e:
-                test_results.append({
-                    'name': 'Single Feed Processing',
-                    'success': False,
-                    'details': f'Exception: {str(e)}'
-                })
+                test_results.append(
+                    {
+                        "name": "Single Feed Processing",
+                        "success": False,
+                        "details": f"Exception: {str(e)}",
+                    }
+                )
 
             # Test 2: Async batch processing
             total_tests += 1
             try:
                 if await tester.test_feed_fetcher(test_feeds):
                     passed_tests += 1
-                    test_results.append({
-                        'name': 'Async Batch Processing',
-                        'success': True,
-                        'details': f'Successfully processed {len(test_feeds)} feeds'
-                    })
+                    test_results.append(
+                        {
+                            "name": "Async Batch Processing",
+                            "success": True,
+                            "details": f"Successfully processed {len(test_feeds)} feeds",
+                        }
+                    )
                 else:
-                    test_results.append({
-                        'name': 'Async Batch Processing',
-                        'success': False,
-                        'details': 'Batch processing failed'
-                    })
+                    test_results.append(
+                        {
+                            "name": "Async Batch Processing",
+                            "success": False,
+                            "details": "Batch processing failed",
+                        }
+                    )
             except Exception as e:
-                test_results.append({
-                    'name': 'Async Batch Processing',
-                    'success': False,
-                    'details': f'Exception: {str(e)}'
-                })
+                test_results.append(
+                    {
+                        "name": "Async Batch Processing",
+                        "success": False,
+                        "details": f"Exception: {str(e)}",
+                    }
+                )
 
             # Test 3: Database operations
             total_tests += 1
             try:
                 if tester.test_database_operations(chat_id):
                     passed_tests += 1
-                    test_results.append({
-                        'name': 'Database Operations',
-                        'success': True,
-                        'details': 'CRUD operations successful'
-                    })
+                    test_results.append(
+                        {
+                            "name": "Database Operations",
+                            "success": True,
+                            "details": "CRUD operations successful",
+                        }
+                    )
                 else:
-                    test_results.append({
-                        'name': 'Database Operations',
-                        'success': False,
-                        'details': 'Database operations failed'
-                    })
+                    test_results.append(
+                        {
+                            "name": "Database Operations",
+                            "success": False,
+                            "details": "Database operations failed",
+                        }
+                    )
             except Exception as e:
-                test_results.append({
-                    'name': 'Database Operations',
-                    'success': False,
-                    'details': f'Exception: {str(e)}'
-                })
+                test_results.append(
+                    {
+                        "name": "Database Operations",
+                        "success": False,
+                        "details": f"Exception: {str(e)}",
+                    }
+                )
 
             return PipelineTestSummary(
                 total_tests=total_tests,
                 passed_tests=passed_tests,
                 failed_tests=total_tests - passed_tests,
                 test_results=test_results,
-                chat_id=chat_id
+                chat_id=chat_id,
             )
 
         except Exception as e:
@@ -465,12 +510,14 @@ class ManualProcessingService:
                 total_tests=1,
                 passed_tests=0,
                 failed_tests=1,
-                test_results=[{
-                    'name': 'Pipeline Test Setup',
-                    'success': False,
-                    'details': f'Setup error: {str(e)}'
-                }],
-                chat_id=chat_id
+                test_results=[
+                    {
+                        "name": "Pipeline Test Setup",
+                        "success": False,
+                        "details": f"Setup error: {str(e)}",
+                    }
+                ],
+                chat_id=chat_id,
             )
 
     def _store_articles(self, articles: List, feed_url: str) -> None:
@@ -496,20 +543,23 @@ class ManualProcessingService:
                     content_hash = hashlib.md5(content_text.encode()).hexdigest()
 
                     # Insert or replace article
-                    conn.execute("""
+                    conn.execute(
+                        """
                         INSERT OR REPLACE INTO articles
                         (id, title, url, content, published_at, source_feed, content_hash, created_at)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        article_id,
-                        article.title,
-                        article.link,
-                        content_text,
-                        article.published,
-                        feed_url,
-                        content_hash,
-                        datetime.now(timezone.utc)
-                    ))
+                    """,
+                        (
+                            article_id,
+                            article.title,
+                            article.link,
+                            content_text,
+                            article.published,
+                            feed_url,
+                            content_hash,
+                            datetime.now(timezone.utc),
+                        ),
+                    )
                 conn.commit()
                 self.logger.info(f"Stored {len(articles)} articles from {feed_url}")
 

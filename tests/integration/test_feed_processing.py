@@ -37,18 +37,14 @@ class FeedProcessingTester:
         self.db = get_db_manager(self.settings.database.path)
 
         # Setup logging first
-        setup_logger(
-            name="feed_processing_test",
-            level="DEBUG",
-            console=True
-        )
+        setup_logger(name="feed_processing_test", level="DEBUG", console=True)
         self.logger = logging.getLogger("feed_processing_test")
 
         # Initialize repositories
         self.feed_repo = FeedRepository(self.db)
         self.topic_repo = TopicRepository(self.db)
         self.article_repo = ArticleRepository(self.db)
-        
+
         # Create test channel if it doesn't exist
         self._ensure_test_channel("test_chat")
 
@@ -62,23 +58,25 @@ class FeedProcessingTester:
             with self.db.get_connection() as conn:
                 # Check if channel exists
                 existing = conn.execute(
-                    "SELECT * FROM channels WHERE chat_id = ?",
-                    (chat_id,)
+                    "SELECT * FROM channels WHERE chat_id = ?", (chat_id,)
                 ).fetchone()
-                
+
                 if not existing:
                     # Create test channel
-                    conn.execute("""
+                    conn.execute(
+                        """
                         INSERT INTO channels (chat_id, chat_title, chat_type, active, registered_at, created_at)
                         VALUES (?, ?, ?, ?, ?, ?)
-                    """, (
-                        chat_id,
-                        "Test Channel",
-                        "group",
-                        True,
-                        datetime.now(timezone.utc),
-                        datetime.now(timezone.utc)
-                    ))
+                    """,
+                        (
+                            chat_id,
+                            "Test Channel",
+                            "group",
+                            True,
+                            datetime.now(timezone.utc),
+                            datetime.now(timezone.utc),
+                        ),
+                    )
                     conn.commit()
                     self.logger.info(f"Created test channel: {chat_id}")
         except Exception as e:
@@ -131,7 +129,9 @@ class FeedProcessingTester:
             self.print_success(f"Feed fetched successfully!")
             print(f"   📊 Articles found: {len(articles)}")
             print(f"   📰 Feed title: {feed_metadata.title or 'Unknown'}")
-            print(f"   🔗 Feed description: {(feed_metadata.description or 'None')[:100]}...")
+            print(
+                f"   🔗 Feed description: {(feed_metadata.description or 'None')[:100]}..."
+            )
 
             # Show sample articles
             self.print_step("2. Sample articles from feed:")
@@ -139,7 +139,11 @@ class FeedProcessingTester:
                 print(f"   {i}. {article.title}")
                 print(f"      📅 {article.published or 'No date'}")
                 print(f"      🔗 {article.link}")
-                print(f"      📝 {article.content[:100]}..." if article.content else "      📝 No content")
+                print(
+                    f"      📝 {article.content[:100]}..."
+                    if article.content
+                    else "      📝 No content"
+                )
                 print()
 
             return True
@@ -215,7 +219,7 @@ class FeedProcessingTester:
                 description="Test feed for database operations testing",
                 active=True,
                 error_count=0,
-                last_fetched_at=datetime.now(timezone.utc)
+                last_fetched_at=datetime.now(timezone.utc),
             )
 
             feed_id = self.feed_repo.create_feed(test_feed)
@@ -241,7 +245,7 @@ class FeedProcessingTester:
                 name="AWS Lambda",
                 keywords=["lambda", "serverless", "aws functions"],
                 confidence_threshold=0.8,
-                active=True
+                active=True,
             )
 
             topic_id = self.topic_repo.create_topic(test_topic)
@@ -283,7 +287,7 @@ class FeedProcessingTester:
                 name="AWS Updates",
                 keywords=["aws", "amazon", "cloud", "lambda", "ec2"],
                 confidence_threshold=0.7,
-                active=True
+                active=True,
             )
 
             topic_id = self.topic_repo.create_topic(test_topic)
@@ -297,7 +301,7 @@ class FeedProcessingTester:
                 url="https://feeds.example.com/pipeline-test-feed.xml",
                 title="Pipeline Test Feed",
                 active=True,
-                error_count=0
+                error_count=0,
             )
 
             feed_id = self.feed_repo.create_feed(test_feed)
@@ -338,14 +342,18 @@ class FeedProcessingTester:
             for article in articles[:5]:  # Process first 5 articles
                 # Simple keyword matching (without AI)
                 content_text = f"{article.title} {article.content or ''}".lower()
-                keyword_matches = sum(1 for keyword in topic.keywords if keyword.lower() in content_text)
+                keyword_matches = sum(
+                    1 for keyword in topic.keywords if keyword.lower() in content_text
+                )
 
                 if keyword_matches > 0:
-                    matched_articles.append({
-                        'article': article,
-                        'matches': keyword_matches,
-                        'topic': topic.name
-                    })
+                    matched_articles.append(
+                        {
+                            "article": article,
+                            "matches": keyword_matches,
+                            "topic": topic.name,
+                        }
+                    )
 
             self.print_success(f"Found {len(matched_articles)} relevant articles")
 
@@ -353,7 +361,7 @@ class FeedProcessingTester:
             self.print_step("4. Results summary...")
 
             for i, match in enumerate(matched_articles, 1):
-                article = match['article']
+                article = match["article"]
                 print(f"   {i}. {article.title}")
                 print(f"      🎯 Topic: {match['topic']}")
                 print(f"      📊 Keyword matches: {match['matches']}")
@@ -394,7 +402,11 @@ class FeedProcessingTester:
                 return True
 
             for i, feed in enumerate(feeds, 1):
-                status = "🟢" if feed.active and feed.error_count == 0 else "🟡" if feed.error_count < 5 else "🔴"
+                status = (
+                    "🟢"
+                    if feed.active and feed.error_count == 0
+                    else "🟡" if feed.error_count < 5 else "🔴"
+                )
 
                 print(f"\n{status} {i}. {feed.title or 'Untitled Feed'}")
                 print(f"   🔗 {feed.url}")

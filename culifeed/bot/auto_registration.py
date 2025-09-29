@@ -38,9 +38,11 @@ class AutoRegistrationHandler:
             db_connection: Database connection manager
         """
         self.db = db_connection
-        self.logger = get_logger_for_component('auto_registration')
+        self.logger = get_logger_for_component("auto_registration")
 
-    async def handle_chat_member_update(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def handle_chat_member_update(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
         """Handle bot being added to or removed from chats.
 
         Args:
@@ -58,21 +60,32 @@ class AutoRegistrationHandler:
             new_status = chat_member_update.new_chat_member.status
 
             # Bot was added to a chat
-            if old_status == ChatMember.LEFT and new_status in [ChatMember.MEMBER, ChatMember.ADMINISTRATOR]:
+            if old_status == ChatMember.LEFT and new_status in [
+                ChatMember.MEMBER,
+                ChatMember.ADMINISTRATOR,
+            ]:
                 await self._register_channel(chat, context)
 
             # Bot was removed from a chat
-            elif old_status in [ChatMember.MEMBER, ChatMember.ADMINISTRATOR] and new_status == ChatMember.LEFT:
+            elif (
+                old_status in [ChatMember.MEMBER, ChatMember.ADMINISTRATOR]
+                and new_status == ChatMember.LEFT
+            ):
                 await self._unregister_channel(chat)
 
             # Bot status changed (e.g., promoted to admin)
-            elif old_status != new_status and new_status in [ChatMember.MEMBER, ChatMember.ADMINISTRATOR]:
+            elif old_status != new_status and new_status in [
+                ChatMember.MEMBER,
+                ChatMember.ADMINISTRATOR,
+            ]:
                 await self._update_channel_status(chat, new_status)
 
         except Exception as e:
             self.logger.error(f"Error handling chat member update: {e}")
 
-    async def _register_channel(self, chat: Chat, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def _register_channel(
+        self, chat: Chat, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
         """Register a new channel when bot is added.
 
         Args:
@@ -99,7 +112,9 @@ class AutoRegistrationHandler:
             # Send welcome message
             await self._send_welcome_message(context, chat_id, welcome_message)
 
-            self.logger.info(f"Successfully registered channel: {chat_title} ({chat_id})")
+            self.logger.info(
+                f"Successfully registered channel: {chat_title} ({chat_id})"
+            )
 
         except Exception as e:
             self.logger.error(f"Failed to register channel {chat.id}: {e}")
@@ -107,7 +122,7 @@ class AutoRegistrationHandler:
             try:
                 await context.bot.send_message(
                     chat_id=chat.id,
-                    text="❌ Error during registration. Please try /start command."
+                    text="❌ Error during registration. Please try /start command.",
                 )
             except:
                 pass  # Ignore if we can't send error message
@@ -124,11 +139,14 @@ class AutoRegistrationHandler:
 
             # Deactivate channel (preserve data for potential re-addition)
             with self.db.get_connection() as conn:
-                conn.execute("""
+                conn.execute(
+                    """
                     UPDATE channels
                     SET active = ?, last_delivery_at = ?
                     WHERE chat_id = ?
-                """, (False, datetime.now(timezone.utc), chat_id))
+                """,
+                    (False, datetime.now(timezone.utc), chat_id),
+                )
                 conn.commit()
 
             self.logger.info(f"Deactivated channel: {chat_title} ({chat_id})")
@@ -205,8 +223,7 @@ class AutoRegistrationHandler:
         try:
             with self.db.get_connection() as conn:
                 row = conn.execute(
-                    "SELECT * FROM channels WHERE chat_id = ?",
-                    (chat_id,)
+                    "SELECT * FROM channels WHERE chat_id = ?", (chat_id,)
                 ).fetchone()
 
                 return dict(row) if row else None
@@ -215,7 +232,9 @@ class AutoRegistrationHandler:
             self.logger.error(f"Error checking existing channel {chat_id}: {e}")
             return None
 
-    async def _create_new_channel(self, chat_id: str, chat_title: str, chat_type: ChatType) -> None:
+    async def _create_new_channel(
+        self, chat_id: str, chat_title: str, chat_type: ChatType
+    ) -> None:
         """Create a new channel record in database.
 
         Args:
@@ -226,11 +245,14 @@ class AutoRegistrationHandler:
         now = datetime.now(timezone.utc)
 
         with self.db.get_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO channels
                 (chat_id, chat_title, chat_type, active, registered_at, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (chat_id, chat_title, chat_type.value, True, now, now))
+            """,
+                (chat_id, chat_title, chat_type.value, True, now, now),
+            )
             conn.commit()
 
     async def _reactivate_channel(self, chat_id: str, chat_title: str) -> None:
@@ -243,11 +265,14 @@ class AutoRegistrationHandler:
         now = datetime.now(timezone.utc)
 
         with self.db.get_connection() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE channels
                 SET active = ?, chat_title = ?, registered_at = ?
                 WHERE chat_id = ?
-            """, (True, chat_title, now, chat_id))
+            """,
+                (True, chat_title, now, chat_id),
+            )
             conn.commit()
 
     def _get_welcome_message(self, chat_title: str) -> str:
@@ -295,7 +320,9 @@ I've been re-added to *{chat_title}*. Your previous topics and feeds have been p
 
 Type `/status` to check your current setup or `/help` for available commands."""
 
-    async def _send_welcome_message(self, context: ContextTypes.DEFAULT_TYPE, chat_id: str, message: str) -> None:
+    async def _send_welcome_message(
+        self, context: ContextTypes.DEFAULT_TYPE, chat_id: str, message: str
+    ) -> None:
         """Send welcome message to a chat.
 
         Args:
@@ -307,8 +334,8 @@ Type `/status` to check your current setup or `/help` for available commands."""
             await context.bot.send_message(
                 chat_id=chat_id,
                 text=message,
-                parse_mode='Markdown',
-                disable_web_page_preview=True
+                parse_mode="Markdown",
+                disable_web_page_preview=True,
             )
         except Exception as e:
             self.logger.error(f"Failed to send welcome message to {chat_id}: {e}")
@@ -317,7 +344,9 @@ Type `/status` to check your current setup or `/help` for available commands."""
     # MANUAL REGISTRATION METHODS
     # ================================================================
 
-    async def manually_register_channel(self, chat_id: str, chat_title: str, chat_type: str = "group") -> bool:
+    async def manually_register_channel(
+        self, chat_id: str, chat_title: str, chat_type: str = "group"
+    ) -> bool:
         """Manually register a channel (for testing or admin purposes).
 
         Args:
@@ -367,15 +396,15 @@ Type `/status` to check your current setup or `/help` for available commands."""
                 for chat_type in ChatType:
                     count = conn.execute(
                         "SELECT COUNT(*) FROM channels WHERE chat_type = ? AND active = ?",
-                        (chat_type.value, True)
+                        (chat_type.value, True),
                     ).fetchone()[0]
                     type_stats[chat_type.value] = count
 
                 return {
-                    'total_channels': total,
-                    'active_channels': active,
-                    'inactive_channels': total - active,
-                    'by_type': type_stats
+                    "total_channels": total,
+                    "active_channels": active,
+                    "inactive_channels": total - active,
+                    "by_type": type_stats,
                 }
 
         except Exception as e:

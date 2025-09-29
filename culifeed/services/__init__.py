@@ -9,12 +9,12 @@ from .manual_processing_service import (
     ManualProcessingService,
     FeedFetchSummary,
     BatchProcessingSummary,
-    PipelineTestSummary
+    PipelineTestSummary,
 )
 
 __all__ = [
-    'ManualProcessingService',
-    'FeedFetchSummary',
-    'BatchProcessingSummary',
-    'PipelineTestSummary'
+    "ManualProcessingService",
+    "FeedFetchSummary",
+    "BatchProcessingSummary",
+    "PipelineTestSummary",
 ]

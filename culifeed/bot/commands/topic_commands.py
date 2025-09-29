@@ -19,10 +19,12 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from ...database.connection import DatabaseConnection
-from ...database.models import Topic
+from ...database.models import Topic, UserTier
 from ...storage.topic_repository import TopicRepository
+from ...services.user_subscription_service import UserSubscriptionService
 from ...utils.logging import get_logger_for_component
 from ...utils.validators import ContentValidator, ValidationError
+from ...config.settings import get_settings
 from ...ai.ai_manager import AIManager
 from ...utils.exceptions import TelegramError, ErrorCode, AIError
 
@@ -39,10 +41,15 @@ class TopicCommandHandler:
         self.db = db_connection
         self.topic_repo = TopicRepository(db_connection)
         self.ai_manager = AIManager()
-        self.logger = get_logger_for_component('topic_commands')
+        self.user_service = UserSubscriptionService(
+            db_connection
+        )  # NEW: User subscription service
+        self.logger = get_logger_for_component("topic_commands")
 
-    async def handle_list_topics(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /topics command - list all topics for the channel.
+    async def handle_list_topics(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle /topics command - list topics for current chat with global awareness.
 
         Args:
             update: Telegram update object
@@ -50,38 +57,57 @@ class TopicCommandHandler:
         """
         try:
             chat_id = str(update.effective_chat.id)
+            telegram_user_id = update.effective_user.id
+            chat_title = update.effective_chat.title or update.effective_chat.first_name or "this chat"
+            settings = get_settings()
 
             # Get all topics for this channel
             topics = self.topic_repo.get_topics_for_channel(chat_id, active_only=True)
 
             if not topics:
-                message = (
-                    "📝 *No topics configured*\n\n"
-                    "Add your first topic with:\n"
-                    "`/addtopic AI machine learning, artificial intelligence, ML`\n\n"
-                    "Topics help me understand what content you're interested in!"
-                )
+                message = f"📝 *No topics in {chat_title}*\n\n"
+                message += "Add your first topic with:\n"
+                message += "`/addtopic AI machine learning, artificial intelligence, ML`\n\n"
+                message += "Topics help me understand what content you're interested in!"
             else:
-                message = "📝 *Your Topics:*\n\n"
+                message = f"📝 *Topics in {chat_title}* ({len(topics)} topics)\n\n"
                 for topic in topics:
                     # Show all keywords with clear visual separation
                     keywords_display = ", ".join(topic.keywords)
+                    message += f"🎯 *{topic.name}*\n" f"    → {keywords_display}\n\n"
 
-                    message += (
-                        f"🎯 *{topic.name}*\n"
-                        f"    → {keywords_display}\n\n"
-                    )
+            # Add global limit summary if SaaS mode is enabled
+            if settings.saas.saas_mode:
+                try:
+                    user_subscription = await self.user_service.get_user_subscription(telegram_user_id)
+                    total_topics = await self.user_service.count_user_topics(telegram_user_id)
 
-                message += f"*{len(topics)} topics configured*\n\n"
-                message += "💡 Use `/addtopic` to add more or `/removetopic` to remove."
+                    if user_subscription.subscription_tier == UserTier.FREE:
+                        limit = settings.saas.free_tier_topic_limit_per_user
+                        if total_topics >= limit:
+                            message += f"\n🚫 *Using {total_topics}/{limit} topics* (limit reached)\n"
+                            message += "💎 Use `/pro_info` to learn about Pro tier\n"
+                        elif total_topics > 0:
+                            message += f"\n📊 *Using {total_topics}/{limit} topics* across all chats\n"
+                    else:
+                        message += f"\n💎 *Pro User* - {total_topics} topics (unlimited)\n"
 
-            await update.message.reply_text(message, parse_mode='Markdown')
+                    message += "📋 Use `/account` to manage your subscription\n"
+                except Exception as e:
+                    self.logger.warning(f"Failed to get user limits: {e}")
+
+            if topics:
+                message += "\n💡 Use `/addtopic` to add more or `/removetopic` to remove."
+
+            await update.message.reply_text(message, parse_mode="Markdown")
 
         except Exception as e:
             await self._handle_error(update, "list topics", e)
 
-    async def handle_add_topic(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle /addtopic command - add a new topic.
+    async def handle_add_topic(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle /addtopic command - add a new topic with user-based limits.
 
         Format: /addtopic <name> <keyword1, keyword2, keyword3>
 
@@ -91,10 +117,21 @@ class TopicCommandHandler:
         """
         try:
             chat_id = str(update.effective_chat.id)
+            telegram_user_id = (
+                update.effective_user.id
+            )  # NEW: Get user ID for ownership
             args = context.args
 
             if not args:
                 await self._send_add_topic_help(update)
+                return
+
+            # NEW: Validate user can add topic based on SaaS limits
+            can_add, reason = await self._validate_topic_creation(telegram_user_id)
+            if not can_add:
+                await update.message.reply_text(
+                    f"❌ *Cannot add topic:* {reason}", parse_mode="Markdown"
+                )
                 return
 
             # Parse arguments
@@ -110,8 +147,7 @@ class TopicCommandHandler:
                 validated_name = ContentValidator.validate_topic_name(topic_name)
             except ValidationError as e:
                 await update.message.reply_text(
-                    f"❌ *Invalid topic name:* {e.message}",
-                    parse_mode='Markdown'
+                    f"❌ *Invalid topic name:* {e.message}", parse_mode="Markdown"
                 )
                 return
 
@@ -119,18 +155,28 @@ class TopicCommandHandler:
             if keywords is None:
                 # AI keyword generation - validate topic has enough context
                 try:
-                    ai_validated_name = ContentValidator.validate_topic_name_for_ai_generation(validated_name)
+                    ai_validated_name = (
+                        ContentValidator.validate_topic_name_for_ai_generation(
+                            validated_name
+                        )
+                    )
                 except ValidationError as e:
                     await update.message.reply_text(
                         f"❌ *AI keyword generation needs more context:*\n\n{str(e).split('] ')[1]}",
-                        parse_mode='Markdown'
+                        parse_mode="Markdown",
                     )
                     return
 
-                progress_msg = await update.message.reply_text(f"🤖 Generating keywords for '{ai_validated_name}'...")
+                progress_msg = await update.message.reply_text(
+                    f"🤖 Generating keywords for '{ai_validated_name}'..."
+                )
                 try:
-                    validated_keywords = await self._generate_keywords_with_ai(ai_validated_name, chat_id)
-                    await progress_msg.edit_text(f"✅ Generated keywords: {', '.join(validated_keywords)}")
+                    validated_keywords = await self._generate_keywords_with_ai(
+                        ai_validated_name, chat_id
+                    )
+                    await progress_msg.edit_text(
+                        f"✅ Generated keywords: {', '.join(validated_keywords)}"
+                    )
                 except Exception as e:
                     await progress_msg.edit_text(f"⚠️ Using fallback keywords")
                     validated_keywords = [ai_validated_name.lower()]
@@ -140,8 +186,7 @@ class TopicCommandHandler:
                     validated_keywords = ContentValidator.validate_keywords(keywords)
                 except ValidationError as e:
                     await update.message.reply_text(
-                        f"❌ *Invalid keywords:* {e.message}",
-                        parse_mode='Markdown'
+                        f"❌ *Invalid keywords:* {e.message}", parse_mode="Markdown"
                     )
                     return
 
@@ -151,18 +196,19 @@ class TopicCommandHandler:
                 await update.message.reply_text(
                     f"❌ Topic *'{validated_name}'* already exists.\n"
                     f"Use `/edittopic {validated_name}` to modify it.",
-                    parse_mode='Markdown'
+                    parse_mode="Markdown",
                 )
                 return
 
-            # Create new topic
+            # Create new topic WITH user ownership
             topic = Topic(
                 chat_id=chat_id,
                 name=validated_name,
                 keywords=validated_keywords,
                 exclude_keywords=[],
                 confidence_threshold=0.6,  # Default threshold (Phase 1)
-                active=True
+                active=True,
+                telegram_user_id=telegram_user_id,  # NEW: Set topic owner
             )
 
             # Save to database
@@ -176,19 +222,23 @@ class TopicCommandHandler:
                     f"🎯 I'll now look for content matching these keywords!\n\n"
                     f"💡 Add RSS feeds with `/addfeed` to start getting content."
                 )
-                await update.message.reply_text(success_message, parse_mode='Markdown')
+                await update.message.reply_text(success_message, parse_mode="Markdown")
 
-                self.logger.info(f"Created topic '{validated_name}' for channel {chat_id}")
+                self.logger.info(
+                    f"Created topic '{validated_name}' for channel {chat_id}"
+                )
             else:
                 await update.message.reply_text(
                     "❌ Failed to create topic. Please try again.",
-                    parse_mode='Markdown'
+                    parse_mode="Markdown",
                 )
 
         except Exception as e:
             await self._handle_error(update, "add topic", e)
 
-    async def handle_remove_topic(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def handle_remove_topic(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
         """Handle /removetopic command - remove an existing topic.
 
         Format: /removetopic <name>
@@ -211,7 +261,9 @@ class TopicCommandHandler:
                 message = update.callback_query.message
 
             if not message:
-                self.logger.warning("No message object available for remove topic response")
+                self.logger.warning(
+                    "No message object available for remove topic response"
+                )
                 return
 
             if not args:
@@ -220,7 +272,7 @@ class TopicCommandHandler:
                     "Usage: `/removetopic <topic_name>`\n"
                     "Example: `/removetopic AI`\n\n"
                     "Use `/topics` to see all your topics.",
-                    parse_mode='Markdown'
+                    parse_mode="Markdown",
                 )
                 return
 
@@ -232,7 +284,7 @@ class TopicCommandHandler:
                 await message.reply_text(
                     f"❌ Topic *'{topic_name}'* not found.\n\n"
                     f"Use `/topics` to see all your topics.",
-                    parse_mode='Markdown'
+                    parse_mode="Markdown",
                 )
                 return
 
@@ -242,19 +294,21 @@ class TopicCommandHandler:
             if success:
                 await message.reply_text(
                     f"✅ Topic *'{topic_name}'* removed successfully!",
-                    parse_mode='Markdown'
+                    parse_mode="Markdown",
                 )
                 self.logger.info(f"Removed topic '{topic_name}' from channel {chat_id}")
             else:
                 await message.reply_text(
                     "❌ Failed to remove topic. Please try again.",
-                    parse_mode='Markdown'
+                    parse_mode="Markdown",
                 )
 
         except Exception as e:
             await self._handle_error(update, "remove topic", e)
 
-    async def handle_edit_topic(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def handle_edit_topic(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
         """Handle /edittopic command - edit an existing topic.
 
         Format: /edittopic <name> <new_keywords>
@@ -289,7 +343,7 @@ class TopicCommandHandler:
                 await update.message.reply_text(
                     f"❌ Topic *'{topic_name}'* not found.\n\n"
                     f"Use `/topics` to see all your topics.",
-                    parse_mode='Markdown'
+                    parse_mode="Markdown",
                 )
                 return
 
@@ -298,8 +352,7 @@ class TopicCommandHandler:
                 validated_keywords = ContentValidator.validate_keywords(keywords)
             except ValidationError as e:
                 await update.message.reply_text(
-                    f"❌ *Invalid keywords:* {e.message}",
-                    parse_mode='Markdown'
+                    f"❌ *Invalid keywords:* {e.message}", parse_mode="Markdown"
                 )
                 return
 
@@ -311,42 +364,50 @@ class TopicCommandHandler:
                 await update.message.reply_text(
                     f"✅ Topic *'{topic_name}'* updated successfully!\n\n"
                     f"*New keywords:* {', '.join(validated_keywords)}",
-                    parse_mode='Markdown'
+                    parse_mode="Markdown",
                 )
                 self.logger.info(f"Updated topic '{topic_name}' for channel {chat_id}")
             else:
                 await update.message.reply_text(
                     "❌ Failed to update topic. Please try again.",
-                    parse_mode='Markdown'
+                    parse_mode="Markdown",
                 )
 
         except Exception as e:
             await self._handle_error(update, "edit topic", e)
 
-    async def _generate_keywords_with_ai(self, topic_name: str, chat_id: str) -> List[str]:
+    async def _generate_keywords_with_ai(
+        self, topic_name: str, chat_id: str
+    ) -> List[str]:
         """Generate keywords for a topic using AI."""
         try:
             # Remove context contamination to prevent keyword bleeding between unrelated topics
             # Each topic should generate keywords based solely on its own content
             context = ""
-            
+
             # Use AIManager with proper fallback strategy - same as other AI operations
-            result = await self.ai_manager.generate_keywords(topic_name, context, max_keywords=7)
-            
+            result = await self.ai_manager.generate_keywords(
+                topic_name, context, max_keywords=7
+            )
+
             if result.success and result.content:
                 keywords = result.content if isinstance(result.content, list) else []
                 return keywords[:7] if keywords else [topic_name.lower()]
             else:
                 # AI failed, use fallback
-                self.logger.warning(f"AI keyword generation failed: {result.error_message}")
+                self.logger.warning(
+                    f"AI keyword generation failed: {result.error_message}"
+                )
                 raise AIError(result.error_message or "AI generation failed")
-            
+
         except Exception as e:
             self.logger.error(f"AI keyword generation failed: {e}")
             # Simple fallback - same as AIManager fallback but simpler
             return [topic_name.lower(), f"{topic_name.lower()} technology"]
 
-    def _parse_add_topic_args(self, args: List[str]) -> Optional[tuple[str, Optional[List[str]]]]:
+    def _parse_add_topic_args(
+        self, args: List[str]
+    ) -> Optional[tuple[str, Optional[List[str]]]]:
         """Parse arguments for /addtopic command.
 
         Args:
@@ -376,7 +437,9 @@ class TopicCommandHandler:
         topic_name = full_text.strip()
         return topic_name, None  # None indicates AI generation
 
-    def _parse_edit_topic_args(self, args: List[str], chat_id: str) -> Optional[tuple[str, List[str]]]:
+    def _parse_edit_topic_args(
+        self, args: List[str], chat_id: str
+    ) -> Optional[tuple[str, List[str]]]:
         """Parse arguments for /edittopic command with smart topic name matching.
 
         Args:
@@ -399,7 +462,7 @@ class TopicCommandHandler:
         # Split on FIRST comma only to separate topic area from keywords
         first_comma_index = full_text.index(",")
         potential_topic_part = full_text[:first_comma_index].strip()
-        keywords_part = full_text[first_comma_index + 1:].strip()
+        keywords_part = full_text[first_comma_index + 1 :].strip()
 
         if not potential_topic_part or not keywords_part:
             return None
@@ -416,7 +479,7 @@ class TopicCommandHandler:
                     full_keywords = " ".join(remaining_words) + ", " + keywords_part
                 else:
                     full_keywords = keywords_part
-                
+
                 keywords = [k.strip() for k in full_keywords.split(",") if k.strip()]
                 return candidate_topic, keywords
 
@@ -440,7 +503,7 @@ class TopicCommandHandler:
             "• With commas = Manual keyword specification\n"
             "• AI considers your existing topics for context"
         )
-        await update.message.reply_text(help_message, parse_mode='Markdown')
+        await update.message.reply_text(help_message, parse_mode="Markdown")
 
     async def _send_edit_topic_help(self, update: Update) -> None:
         """Send help message for /edittopic command."""
@@ -454,9 +517,11 @@ class TopicCommandHandler:
             "*Important:* Keywords must be separated by commas.\n"
             "Use `/topics` to see your current topics."
         )
-        await update.message.reply_text(help_message, parse_mode='Markdown')
+        await update.message.reply_text(help_message, parse_mode="Markdown")
 
-    async def _handle_error(self, update: Update, operation: str, error: Exception) -> None:
+    async def _handle_error(
+        self, update: Update, operation: str, error: Exception
+    ) -> None:
         """Handle errors in topic operations.
 
         Args:
@@ -471,7 +536,7 @@ class TopicCommandHandler:
                 f"❌ *Error in {operation}*\n\n"
                 f"Please try again or use `/help` for usage instructions."
             )
-            
+
             # Try multiple message sources in order of preference
             message = None
             if update.message:
@@ -480,11 +545,13 @@ class TopicCommandHandler:
                 message = update.effective_message
             elif update.callback_query and update.callback_query.message:
                 message = update.callback_query.message
-                
+
             if message:
-                await message.reply_text(error_message, parse_mode='Markdown')
+                await message.reply_text(error_message, parse_mode="Markdown")
             else:
-                self.logger.warning("No message object available to send error response")
+                self.logger.warning(
+                    "No message object available to send error response"
+                )
         except Exception as e:
             self.logger.error(f"Failed to send error message: {e}")
 
@@ -508,17 +575,17 @@ class TopicCommandHandler:
             avg_keywords = total_keywords / len(topics) if topics else 0
 
             return {
-                'total_topics': len(topics),
-                'total_keywords': total_keywords,
-                'average_keywords_per_topic': round(avg_keywords, 1),
-                'topics': [
+                "total_topics": len(topics),
+                "total_keywords": total_keywords,
+                "average_keywords_per_topic": round(avg_keywords, 1),
+                "topics": [
                     {
-                        'name': topic.name,
-                        'keyword_count': len(topic.keywords),
-                        'threshold': topic.confidence_threshold
+                        "name": topic.name,
+                        "keyword_count": len(topic.keywords),
+                        "threshold": topic.confidence_threshold,
                     }
                     for topic in topics
-                ]
+                ],
             }
 
         except Exception as e:
@@ -546,20 +613,246 @@ class TopicCommandHandler:
                 # Check for topics with very few keywords
                 for topic in topics:
                     if len(topic.keywords) < 2:
-                        warnings.append(f"Topic '{topic.name}' has only {len(topic.keywords)} keyword(s)")
+                        warnings.append(
+                            f"Topic '{topic.name}' has only {len(topic.keywords)} keyword(s)"
+                        )
 
                 # Check for very low thresholds
-                low_threshold_topics = [t for t in topics if t.confidence_threshold < 0.3]
+                low_threshold_topics = [
+                    t for t in topics if t.confidence_threshold < 0.3
+                ]
                 if low_threshold_topics:
-                    warnings.append(f"{len(low_threshold_topics)} topic(s) have very low confidence thresholds")
+                    warnings.append(
+                        f"{len(low_threshold_topics)} topic(s) have very low confidence thresholds"
+                    )
 
             return {
-                'valid': len(issues) == 0,
-                'topic_count': len(topics),
-                'issues': issues,
-                'warnings': warnings
+                "valid": len(issues) == 0,
+                "topic_count": len(topics),
+                "issues": issues,
+                "warnings": warnings,
             }
 
         except Exception as e:
             self.logger.error(f"Error validating topic setup: {e}")
-            return {'valid': False, 'issues': ['Validation error occurred']}
+            return {"valid": False, "issues": ["Validation error occurred"]}
+
+    # ================================================================
+    # NEW: SaaS USER VALIDATION METHODS
+    # ================================================================
+
+    async def _validate_topic_creation(self, telegram_user_id: int) -> tuple[bool, str]:
+        """Validate if user can create another topic based on SaaS limits.
+
+        Args:
+            telegram_user_id: Telegram user ID
+
+        Returns:
+            Tuple of (can_add: bool, reason: str)
+        """
+        return await self.user_service.can_add_topic(telegram_user_id)
+
+    # ================================================================
+    # NEW: USER MANAGEMENT COMMANDS
+    # ================================================================
+
+    async def handle_account(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle /account command - show user account, subscription, and topics across all chats.
+
+        Args:
+            update: Telegram update object
+            context: Bot context
+        """
+        try:
+            telegram_user_id = update.effective_user.id
+
+            # Get user's topic summary
+            summary = await self.user_service.get_user_topic_summary(telegram_user_id)
+
+            if not summary["saas_mode_enabled"]:
+                await update.message.reply_text(
+                    "💎 *Account (Self-Hosted Mode)*\n\n"
+                    "SaaS mode is disabled. Topic limits not enforced.\n"
+                    "Use `/topics` to see topics in this chat.",
+                    parse_mode="Markdown",
+                )
+                return
+
+            # Build message
+            message = f"💎 *Account & Subscription*\n\n"
+            message += f"**Tier:** {summary['subscription_tier'].upper()}\n"
+            message += f"**Topics Used:** {summary['total_topics']}"
+
+            if summary["subscription_tier"] == UserTier.FREE:
+                message += f"/{summary['limit']}\n"
+            else:
+                message += " (Unlimited)\n"
+
+            # Get user subscription for member since date
+            user_subscription = await self.user_service.get_user_subscription(telegram_user_id)
+            message += f"**Member Since:** {user_subscription.created_at.strftime('%B %Y')}\n"
+
+            if summary["topics_by_chat"]:
+                message += "\n**Topics by Chat:**\n"
+                for chat_info in summary["topics_by_chat"]:
+                    chat_type_emoji = {
+                        "private": "👤",
+                        "group": "👥",
+                        "supergroup": "👥",
+                        "channel": "📢",
+                    }.get(chat_info["chat_type"], "💬")
+
+                    message += f"\n{chat_type_emoji} *{chat_info['chat_title']}* ({chat_info['topic_count']} topics)\n"
+
+                    # Split topic names and display as bullet points
+                    topic_names = [name.strip() for name in chat_info['topic_names'].split(',') if name.strip()]
+                    for topic_name in topic_names:
+                        message += f"   • {topic_name}\n"
+
+                if summary["can_add_more"]:
+                    remaining = (
+                        summary["limit"] - summary["total_topics"]
+                        if summary["limit"] != "Unlimited"
+                        else "unlimited"
+                    )
+                    message += f"\n✅ You can add {remaining} more topics."
+                else:
+                    message += (
+                        f"\n⚠️ *Free tier limit reached!*\n"
+                        f"💎 Use `/pro_info` to learn about Pro upgrade"
+                    )
+            else:
+                message += "\n*No topics created yet.*\n"
+                message += "Use `/addtopic` to create your first topic!"
+
+            await update.message.reply_text(message, parse_mode="Markdown")
+
+        except Exception as e:
+            await self._handle_error(update, "account", e)
+
+    async def handle_topic_usage(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle /topic_usage command - show topic count and limits.
+
+        Args:
+            update: Telegram update object
+            context: Bot context
+        """
+        try:
+            telegram_user_id = update.effective_user.id
+            settings = get_settings()
+
+            if not settings.saas.saas_mode:
+                await update.message.reply_text(
+                    "📈 *Topic Usage (Self-Hosted)*\n\n"
+                    "SaaS mode is disabled. No topic limits enforced.\n"
+                    "You can create unlimited topics.",
+                    parse_mode="Markdown",
+                )
+                return
+
+            # Get user subscription and usage
+            user_subscription = await self.user_service.get_user_subscription(
+                telegram_user_id
+            )
+            current_count = await self.user_service.count_user_topics(telegram_user_id)
+
+            message = "📈 *Topic Usage & Limits*\n\n"
+            message += (
+                f"**Current Tier:** {user_subscription.subscription_tier.upper()}\n"
+            )
+            message += f"**Topics Used:** {current_count}"
+
+            if user_subscription.subscription_tier == UserTier.FREE:
+                limit = settings.saas.free_tier_topic_limit_per_user
+                message += f"/{limit}\n"
+
+                # Progress bar
+                percentage = (current_count / limit) * 100
+                filled = int(percentage / 10)
+                bar = "█" * filled + "░" * (10 - filled)
+                message += f"**Progress:** {bar} {percentage:.0f}%\n"
+
+                if current_count >= limit:
+                    message += "\n🚫 *Limit reached!* Cannot add more topics.\n"
+                    message += "💎 Pro upgrade coming soon for unlimited topics!"
+                else:
+                    remaining = limit - current_count
+                    message += f"\n✅ You can add {remaining} more topics."
+            else:
+                message += " (Unlimited)\n"
+                message += "💎 **Pro User** - No limits on topic creation!"
+
+            message += f"\n\n📅 **Member since:** {user_subscription.created_at.strftime('%B %Y')}"
+
+            await update.message.reply_text(message, parse_mode="Markdown")
+
+        except Exception as e:
+            await self._handle_error(update, "topic usage", e)
+
+    async def handle_pro_info(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle /pro_info command - show pro tier benefits.
+
+        Args:
+            update: Telegram update object
+            context: Bot context
+        """
+        try:
+            telegram_user_id = update.effective_user.id
+            settings = get_settings()
+
+            if not settings.saas.saas_mode:
+                await update.message.reply_text(
+                    "💎 *Pro Tier (Self-Hosted)*\n\n"
+                    "SaaS mode is disabled. All features are free!\n"
+                    "No Pro tier needed in self-hosted mode.",
+                    parse_mode="Markdown",
+                )
+                return
+
+            user_subscription = await self.user_service.get_user_subscription(
+                telegram_user_id
+            )
+
+            if user_subscription.subscription_tier == UserTier.PRO:
+                message = "💎 *You're Already Pro!*\n\n"
+                message += "✅ Unlimited topics across all chats\n"
+                message += "✅ Priority AI processing\n"
+                message += "✅ Advanced content filtering\n"
+                message += "✅ Premium support\n\n"
+                message += "Thank you for supporting CuliFeed! 🙏"
+            else:
+                current_count = await self.user_service.count_user_topics(
+                    telegram_user_id
+                )
+                limit = settings.saas.free_tier_topic_limit_per_user
+
+                message = "💎 *CuliFeed Pro Benefits*\n\n"
+                message += "**Current Plan:** FREE\n"
+                message += f"**Current Usage:** {current_count}/{limit} topics\n\n"
+
+                message += "**Upgrade to Pro for:**\n"
+                message += "🚀 Unlimited topics across all chats\n"
+                message += "⚡ Priority AI processing\n"
+                message += "🎯 Advanced content filtering\n"
+                message += "💬 Premium support\n"
+                message += "🔧 Early access to new features\n\n"
+
+                message += "💰 **Pricing:** Coming soon!\n"
+                message += (
+                    "Payment integration with Ko-fi/PayPal is in development.\n\n"
+                )
+
+                if current_count >= limit:
+                    message += "⚠️ *You've reached your free tier limit.*\n"
+                    message += "Upgrade to Pro to add unlimited topics!"
+
+            await update.message.reply_text(message, parse_mode="Markdown")
+
+        except Exception as e:
+            await self._handle_error(update, "pro info", e)

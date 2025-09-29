@@ -28,7 +28,7 @@ class FeedRepository:
             db_connection: Database connection manager
         """
         self.db = db_connection
-        self.logger = get_logger_for_component('feed_repository')
+        self.logger = get_logger_for_component("feed_repository")
         self.settings = get_settings()
 
     def create_feed(self, feed: Feed) -> Optional[int]:
@@ -45,34 +45,38 @@ class FeedRepository:
         """
         try:
             with self.db.get_connection() as conn:
-                cursor = conn.execute("""
+                cursor = conn.execute(
+                    """
                     INSERT INTO feeds (
                         chat_id, url, title, description, 
                         last_fetched_at, last_success_at, error_count, active, created_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    feed.chat_id,
-                    str(feed.url),  # Convert AnyHttpUrl to string
-                    feed.title,
-                    feed.description,
-                    feed.last_fetched_at,
-                    feed.last_success_at,
-                    feed.error_count,
-                    feed.active,
-                    feed.created_at or datetime.now(timezone.utc)
-                ))
-                
+                """,
+                    (
+                        feed.chat_id,
+                        str(feed.url),  # Convert AnyHttpUrl to string
+                        feed.title,
+                        feed.description,
+                        feed.last_fetched_at,
+                        feed.last_success_at,
+                        feed.error_count,
+                        feed.active,
+                        feed.created_at or datetime.now(timezone.utc),
+                    ),
+                )
+
                 feed_id = cursor.lastrowid
                 conn.commit()
-                
-                self.logger.info(f"Created feed {feed_id} for chat {feed.chat_id}: {feed.url}")
+
+                self.logger.info(
+                    f"Created feed {feed_id} for chat {feed.chat_id}: {feed.url}"
+                )
                 return feed_id
-                
+
         except Exception as e:
             self.logger.error(f"Failed to create feed: {e}")
             raise DatabaseError(
-                f"Failed to create feed: {e}",
-                error_code=ErrorCode.DATABASE_ERROR
+                f"Failed to create feed: {e}", error_code=ErrorCode.DATABASE_ERROR
             )
 
     def get_feed_by_id(self, feed_id: int) -> Optional[Feed]:
@@ -87,8 +91,7 @@ class FeedRepository:
         try:
             with self.db.get_connection() as conn:
                 row = conn.execute(
-                    "SELECT * FROM feeds WHERE id = ?",
-                    (feed_id,)
+                    "SELECT * FROM feeds WHERE id = ?", (feed_id,)
                 ).fetchone()
 
                 return self._row_to_feed(row) if row else None
@@ -111,13 +114,15 @@ class FeedRepository:
             with self.db.get_connection() as conn:
                 row = conn.execute(
                     "SELECT * FROM feeds WHERE chat_id = ? AND url = ?",
-                    (chat_id, str(url))  # Ensure URL is string
+                    (chat_id, str(url)),  # Ensure URL is string
                 ).fetchone()
 
                 return self._row_to_feed(row) if row else None
 
         except Exception as e:
-            self.logger.error(f"Failed to get feed by URL {url} for chat {chat_id}: {e}")
+            self.logger.error(
+                f"Failed to get feed by URL {url} for chat {chat_id}: {e}"
+            )
             return None
 
     def get_feeds_for_chat(self, chat_id: str, active_only: bool = True) -> List[Feed]:
@@ -135,12 +140,12 @@ class FeedRepository:
                 if active_only:
                     rows = conn.execute(
                         "SELECT * FROM feeds WHERE chat_id = ? AND active = ? ORDER BY created_at",
-                        (chat_id, True)
+                        (chat_id, True),
                     ).fetchall()
                 else:
                     rows = conn.execute(
                         "SELECT * FROM feeds WHERE chat_id = ? ORDER BY created_at",
-                        (chat_id,)
+                        (chat_id,),
                     ).fetchall()
 
                 return [self._row_to_feed(row) for row in rows]
@@ -159,7 +164,7 @@ class FeedRepository:
             with self.db.get_connection() as conn:
                 rows = conn.execute(
                     "SELECT * FROM feeds WHERE active = ? ORDER BY chat_id, created_at",
-                    (True,)
+                    (True,),
                 ).fetchall()
 
                 return [self._row_to_feed(row) for row in rows]
@@ -185,9 +190,16 @@ class FeedRepository:
             # Build dynamic update query
             fields = []
             values = []
-            
+
             for field, value in kwargs.items():
-                if field in ['title', 'description', 'last_fetched_at', 'last_success_at', 'error_count', 'active']:
+                if field in [
+                    "title",
+                    "description",
+                    "last_fetched_at",
+                    "last_success_at",
+                    "error_count",
+                    "active",
+                ]:
                     fields.append(f"{field} = ?")
                     values.append(value)
 
@@ -201,7 +213,7 @@ class FeedRepository:
             with self.db.get_connection() as conn:
                 cursor = conn.execute(query, values)
                 conn.commit()
-                
+
                 if cursor.rowcount > 0:
                     self.logger.info(f"Updated feed {feed_id}")
                     return True
@@ -226,10 +238,12 @@ class FeedRepository:
             feed_id,
             last_fetched_at=datetime.now(timezone.utc),
             last_success_at=datetime.now(timezone.utc),
-            error_count=0
+            error_count=0,
         )
 
-    def update_feed_error(self, feed_id: int, error_count: Optional[int] = None) -> bool:
+    def update_feed_error(
+        self, feed_id: int, error_count: Optional[int] = None
+    ) -> bool:
         """Record feed fetch error.
 
         Args:
@@ -243,19 +257,25 @@ class FeedRepository:
             with self.db.get_connection() as conn:
                 if error_count is None:
                     # Increment error count
-                    conn.execute("""
+                    conn.execute(
+                        """
                         UPDATE feeds 
                         SET last_fetched_at = ?, error_count = error_count + 1
                         WHERE id = ?
-                    """, (datetime.now(timezone.utc), feed_id))
+                    """,
+                        (datetime.now(timezone.utc), feed_id),
+                    )
                 else:
                     # Set specific error count
-                    conn.execute("""
+                    conn.execute(
+                        """
                         UPDATE feeds 
                         SET last_fetched_at = ?, error_count = ?
                         WHERE id = ?
-                    """, (datetime.now(timezone.utc), error_count, feed_id))
-                
+                    """,
+                        (datetime.now(timezone.utc), error_count, feed_id),
+                    )
+
                 conn.commit()
                 return True
 
@@ -298,7 +318,7 @@ class FeedRepository:
             with self.db.get_connection() as conn:
                 cursor = conn.execute("DELETE FROM feeds WHERE id = ?", (feed_id,))
                 conn.commit()
-                
+
                 if cursor.rowcount > 0:
                     self.logger.info(f"Deleted feed {feed_id}")
                     return True
@@ -323,7 +343,7 @@ class FeedRepository:
             with self.db.get_connection() as conn:
                 cursor = conn.execute("DELETE FROM feeds WHERE chat_id = ?", (chat_id,))
                 conn.commit()
-                
+
                 self.logger.info(f"Deleted {cursor.rowcount} feeds for chat {chat_id}")
                 return cursor.rowcount
 
@@ -343,7 +363,8 @@ class FeedRepository:
         try:
             with self.db.get_connection() as conn:
                 if chat_id:
-                    stats = conn.execute("""
+                    stats = conn.execute(
+                        """
                         SELECT 
                             COUNT(*) as total_feeds,
                             COUNT(CASE WHEN active = 1 THEN 1 END) as active_feeds,
@@ -352,9 +373,12 @@ class FeedRepository:
                             MAX(last_success_at) as last_successful_fetch
                         FROM feeds 
                         WHERE chat_id = ?
-                    """, (chat_id,)).fetchone()
+                    """,
+                        (chat_id,),
+                    ).fetchone()
                 else:
-                    stats = conn.execute("""
+                    stats = conn.execute(
+                        """
                         SELECT 
                             COUNT(*) as total_feeds,
                             COUNT(CASE WHEN active = 1 THEN 1 END) as active_feeds,
@@ -363,7 +387,8 @@ class FeedRepository:
                             MAX(last_success_at) as last_successful_fetch,
                             COUNT(DISTINCT chat_id) as total_chats
                         FROM feeds
-                    """).fetchone()
+                    """
+                    ).fetchone()
 
                 return dict(stats) if stats else {}
 
@@ -381,14 +406,14 @@ class FeedRepository:
             Feed object
         """
         return Feed(
-            id=row['id'],
-            chat_id=row['chat_id'],
-            url=row['url'],
-            title=row['title'],
-            description=row['description'],
-            last_fetched_at=row['last_fetched_at'],
-            last_success_at=row['last_success_at'],
-            error_count=row['error_count'],
-            active=bool(row['active']),
-            created_at=row['created_at']
+            id=row["id"],
+            chat_id=row["chat_id"],
+            url=row["url"],
+            title=row["title"],
+            description=row["description"],
+            last_fetched_at=row["last_fetched_at"],
+            last_success_at=row["last_success_at"],
+            error_count=row["error_count"],
+            active=bool(row["active"]),
+            created_at=row["created_at"],
         )

@@ -62,7 +62,9 @@ class TestTopicCommandsBasic:
         assert "How to add a topic" in call_args
 
     @pytest.mark.asyncio
-    async def test_handle_remove_topic_no_args(self, handler, mock_update, mock_context):
+    async def test_handle_remove_topic_no_args(
+        self, handler, mock_update, mock_context
+    ):
         """Test topic removal with no arguments shows help."""
         mock_context.args = []
 
@@ -92,7 +94,7 @@ class TestTopicCommandsBasic:
         stats = handler.get_topic_statistics(chat_id)
 
         assert isinstance(stats, dict)
-        assert 'total_topics' in stats
+        assert "total_topics" in stats
 
 
 class TestFeedCommandsBasic:
@@ -176,8 +178,8 @@ class TestBotCommandsIntegration:
 
         assert handler is not None
         assert handler.db == mock_db
-        assert hasattr(handler, 'topic_repo')
-        assert hasattr(handler, 'logger')
+        assert hasattr(handler, "topic_repo")
+        assert hasattr(handler, "logger")
 
     def test_feed_handler_initialization(self):
         """Test FeedCommandHandler can be initialized."""
@@ -186,8 +188,8 @@ class TestBotCommandsIntegration:
 
         assert handler is not None
         assert handler.db == mock_db
-        assert hasattr(handler, 'feed_manager')
-        assert hasattr(handler, 'logger')
+        assert hasattr(handler, "feed_manager")
+        assert hasattr(handler, "logger")
 
     def test_command_handlers_have_required_methods(self):
         """Test that command handlers have all required methods."""
@@ -196,25 +198,29 @@ class TestBotCommandsIntegration:
         # Topic handler methods
         topic_handler = TopicCommandHandler(mock_db)
         required_topic_methods = [
-            'handle_list_topics',
-            'handle_add_topic',
-            'handle_remove_topic',
-            'handle_edit_topic'
+            "handle_list_topics",
+            "handle_add_topic",
+            "handle_remove_topic",
+            "handle_edit_topic",
         ]
 
         for method_name in required_topic_methods:
-            assert hasattr(topic_handler, method_name), f"TopicCommandHandler missing {method_name}"
+            assert hasattr(
+                topic_handler, method_name
+            ), f"TopicCommandHandler missing {method_name}"
             assert callable(getattr(topic_handler, method_name))
 
         # Feed handler methods
         feed_handler = FeedCommandHandler(mock_db)
         required_feed_methods = [
-            'handle_list_feeds',
-            'handle_add_feed',
-            'handle_remove_feed',
-            'handle_test_feed'
+            "handle_list_feeds",
+            "handle_add_feed",
+            "handle_remove_feed",
+            "handle_test_feed",
         ]
 
         for method_name in required_feed_methods:
-            assert hasattr(feed_handler, method_name), f"FeedCommandHandler missing {method_name}"
+            assert hasattr(
+                feed_handler, method_name
+            ), f"FeedCommandHandler missing {method_name}"
             assert callable(getattr(feed_handler, method_name))

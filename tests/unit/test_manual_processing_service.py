@@ -15,7 +15,11 @@ import sqlite3
 from unittest.mock import Mock, patch, AsyncMock
 from datetime import datetime, timezone
 
-from culifeed.services.manual_processing_service import ManualProcessingService, FeedFetchSummary, BatchProcessingSummary
+from culifeed.services.manual_processing_service import (
+    ManualProcessingService,
+    FeedFetchSummary,
+    BatchProcessingSummary,
+)
 from culifeed.database.connection import DatabaseConnection
 from culifeed.database.schema import DatabaseSchema
 from culifeed.database.models import Feed
@@ -28,7 +32,7 @@ class TestManualProcessingService:
     @pytest.fixture
     def test_database(self):
         """Create a temporary test database."""
-        with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
             db_path = f.name
 
         # Create schema
@@ -63,7 +67,7 @@ class TestManualProcessingService:
                 summary="This is a test article about EC2",
                 content="Detailed content about AWS EC2 instances and spot pricing",
                 published=datetime.now(timezone.utc),
-                guid="article1"
+                guid="article1",
             ),
             ParsedArticle(
                 title="Test Article 2",
@@ -71,11 +75,13 @@ class TestManualProcessingService:
                 summary="Another test article about reserved instances",
                 content="Content about AWS reserved instances and savings",
                 published=datetime.now(timezone.utc),
-                guid="article2"
-            )
+                guid="article2",
+            ),
         ]
 
-    def test_store_articles_success(self, service, sample_parsed_articles, test_database):
+    def test_store_articles_success(
+        self, service, sample_parsed_articles, test_database
+    ):
         """Test that _store_articles correctly stores ParsedArticle objects."""
         feed_url = "https://example.com/feed.xml"
 
@@ -85,13 +91,18 @@ class TestManualProcessingService:
         # Verify articles were stored
         with sqlite3.connect(test_database) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM articles WHERE source_feed = ?", (feed_url,))
+            cursor.execute(
+                "SELECT COUNT(*) FROM articles WHERE source_feed = ?", (feed_url,)
+            )
             count = cursor.fetchone()[0]
 
             assert count == 2, f"Expected 2 articles, got {count}"
 
             # Check article details
-            cursor.execute("SELECT title, url, content, source_feed FROM articles WHERE source_feed = ?", (feed_url,))
+            cursor.execute(
+                "SELECT title, url, content, source_feed FROM articles WHERE source_feed = ?",
+                (feed_url,),
+            )
             articles = cursor.fetchall()
 
             titles = [article[0] for article in articles]
@@ -116,7 +127,7 @@ class TestManualProcessingService:
                 summary="Summary only",
                 content=None,  # No content
                 published=datetime.now(timezone.utc),
-                guid="no-content"
+                guid="no-content",
             ),
             ParsedArticle(
                 title="Empty Content Article",
@@ -124,8 +135,8 @@ class TestManualProcessingService:
                 summary="Summary only",
                 content="",  # Empty content
                 published=datetime.now(timezone.utc),
-                guid="empty-content"
-            )
+                guid="empty-content",
+            ),
         ]
 
         feed_url = "https://example.com/test-feed.xml"
@@ -134,17 +145,23 @@ class TestManualProcessingService:
         # Verify articles were stored with fallback to summary
         with sqlite3.connect(test_database) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT title, content FROM articles WHERE source_feed = ?", (feed_url,))
+            cursor.execute(
+                "SELECT title, content FROM articles WHERE source_feed = ?", (feed_url,)
+            )
             stored_articles = cursor.fetchall()
 
             assert len(stored_articles) == 2
 
             # Article with no content should use summary
-            no_content_article = next(a for a in stored_articles if a[0] == "No Content Article")
+            no_content_article = next(
+                a for a in stored_articles if a[0] == "No Content Article"
+            )
             assert no_content_article[1] == "Summary only"
 
             # Article with empty content should use summary
-            empty_content_article = next(a for a in stored_articles if a[0] == "Empty Content Article")
+            empty_content_article = next(
+                a for a in stored_articles if a[0] == "Empty Content Article"
+            )
             assert empty_content_article[1] == "Summary only"
 
     @pytest.mark.asyncio
@@ -157,21 +174,40 @@ class TestManualProcessingService:
             cursor = conn.cursor()
 
             # Create test channel
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO channels (chat_id, chat_title, chat_type, active, registered_at, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (chat_id, "Test Channel", "group", True, datetime.now(timezone.utc), datetime.now(timezone.utc)))
+            """,
+                (
+                    chat_id,
+                    "Test Channel",
+                    "group",
+                    True,
+                    datetime.now(timezone.utc),
+                    datetime.now(timezone.utc),
+                ),
+            )
 
             # Create test feed
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO feeds (chat_id, url, title, active, created_at)
                 VALUES (?, ?, ?, ?, ?)
-            """, (chat_id, "https://example.com/feed.xml", "Test Feed", True, datetime.now(timezone.utc)))
+            """,
+                (
+                    chat_id,
+                    "https://example.com/feed.xml",
+                    "Test Feed",
+                    True,
+                    datetime.now(timezone.utc),
+                ),
+            )
 
             conn.commit()
 
         # Mock the feed_manager.fetch_feed to return sample data
-        with patch.object(service.feed_manager, 'fetch_feed') as mock_fetch:
+        with patch.object(service.feed_manager, "fetch_feed") as mock_fetch:
             # Mock feed metadata
             mock_metadata = Mock()
             mock_metadata.title = "Test Feed"
@@ -185,7 +221,7 @@ class TestManualProcessingService:
                     summary="Summary 1",
                     content="Content 1",
                     published=datetime.now(timezone.utc),
-                    guid="mock1"
+                    guid="mock1",
                 ),
                 ParsedArticle(
                     title="Mock Article 2",
@@ -193,8 +229,8 @@ class TestManualProcessingService:
                     summary="Summary 2",
                     content="Content 2",
                     published=datetime.now(timezone.utc),
-                    guid="mock2"
-                )
+                    guid="mock2",
+                ),
             ]
 
             mock_fetch.return_value = (mock_metadata, mock_articles)
@@ -211,13 +247,21 @@ class TestManualProcessingService:
             # Most importantly: verify articles were actually stored in database
             with sqlite3.connect(test_database) as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM articles WHERE source_feed = ?", ("https://example.com/feed.xml",))
+                cursor.execute(
+                    "SELECT COUNT(*) FROM articles WHERE source_feed = ?",
+                    ("https://example.com/feed.xml",),
+                )
                 stored_count = cursor.fetchone()[0]
 
-                assert stored_count == 2, f"Expected 2 articles stored, got {stored_count}"
+                assert (
+                    stored_count == 2
+                ), f"Expected 2 articles stored, got {stored_count}"
 
                 # Verify article content
-                cursor.execute("SELECT title FROM articles WHERE source_feed = ?", ("https://example.com/feed.xml",))
+                cursor.execute(
+                    "SELECT title FROM articles WHERE source_feed = ?",
+                    ("https://example.com/feed.xml",),
+                )
                 titles = [row[0] for row in cursor.fetchall()]
                 assert "Mock Article 1" in titles
                 assert "Mock Article 2" in titles
@@ -225,7 +269,7 @@ class TestManualProcessingService:
     @pytest.mark.asyncio
     async def test_fetch_single_feed_success(self, service):
         """Test fetch_single_feed returns correct summary."""
-        with patch.object(service.feed_manager, 'fetch_feed') as mock_fetch:
+        with patch.object(service.feed_manager, "fetch_feed") as mock_fetch:
             mock_metadata = Mock()
             mock_metadata.title = "Test Feed"
             mock_metadata.description = "Test description"
@@ -237,7 +281,7 @@ class TestManualProcessingService:
                     summary="Sample summary",
                     content="Sample content",
                     published=datetime.now(timezone.utc),
-                    guid="sample"
+                    guid="sample",
                 )
             ]
 
@@ -249,15 +293,17 @@ class TestManualProcessingService:
             assert result.title == "Test Feed"
             assert result.article_count == 1
             assert len(result.sample_articles) == 1
-            assert result.sample_articles[0]['title'] == "Sample Article"
+            assert result.sample_articles[0]["title"] == "Sample Article"
 
     @pytest.mark.asyncio
     async def test_fetch_single_feed_failure(self, service):
         """Test fetch_single_feed handles failures correctly."""
-        with patch.object(service.feed_manager, 'fetch_feed') as mock_fetch:
+        with patch.object(service.feed_manager, "fetch_feed") as mock_fetch:
             mock_fetch.return_value = (None, [])  # Simulate failure
 
-            result = await service.fetch_single_feed("https://invalid-feed.com/feed.xml")
+            result = await service.fetch_single_feed(
+                "https://invalid-feed.com/feed.xml"
+            )
 
             assert result.success is False
             assert result.error_message == "Failed to fetch or parse RSS feed"

@@ -49,15 +49,16 @@ class TestTelegramBotService:
     @pytest.fixture
     def bot_service(self, mock_db, mock_settings):
         """Create bot service with mocked dependencies."""
-        with patch('culifeed.bot.telegram_bot.get_settings', return_value=mock_settings), \
-             patch('culifeed.bot.telegram_bot.get_db_manager', return_value=mock_db):
+        with patch(
+            "culifeed.bot.telegram_bot.get_settings", return_value=mock_settings
+        ), patch("culifeed.bot.telegram_bot.get_db_manager", return_value=mock_db):
             service = TelegramBotService()
             return service
 
     @pytest.mark.asyncio
     async def test_bot_initialization(self, bot_service, mock_settings):
         """Test bot service initialization."""
-        with patch('culifeed.bot.telegram_bot.ApplicationBuilder') as mock_builder:
+        with patch("culifeed.bot.telegram_bot.ApplicationBuilder") as mock_builder:
             mock_app = Mock()
             mock_builder.return_value.token.return_value.build.return_value = mock_app
             mock_app.bot = Mock()
@@ -82,7 +83,9 @@ class TestTelegramBotService:
         context = Mock()
 
         # Mock channel registration
-        with patch.object(bot_service, '_ensure_channel_registered', new_callable=AsyncMock):
+        with patch.object(
+            bot_service, "_ensure_channel_registered", new_callable=AsyncMock
+        ):
             await bot_service._handle_start(update, context)
 
         update.message.reply_text.assert_called_once()
@@ -112,13 +115,13 @@ class TestTelegramBotService:
         mock_cursor.fetchone.side_effect = [
             [5],  # topic count
             [3],  # feed count
-            [25], # article count
-            {     # channel info
-                'chat_title': 'Test Group',
-                'chat_type': 'group',
-                'registered_at': '2024-01-01',
-                'active': True
-            }
+            [25],  # article count
+            {  # channel info
+                "chat_title": "Test Group",
+                "chat_type": "group",
+                "registered_at": "2024-01-01",
+                "active": True,
+            },
         ]
 
         # Get the mock connection from the context manager
@@ -150,9 +153,7 @@ class TestTelegramBotService:
 
         assert result is True
         mock_bot.send_message.assert_called_once_with(
-            chat_id="12345",
-            text="Test message",
-            parse_mode='Markdown'
+            chat_id="12345", text="Test message", parse_mode="Markdown"
         )
 
     @pytest.mark.asyncio
@@ -184,17 +185,19 @@ class TestTelegramBotService:
         result = await bot_service.get_chat_info("12345")
 
         assert result is not None
-        assert result['id'] == 12345
-        assert result['title'] == "Test Group"
-        assert result['type'] == "group"
-        assert result['member_count'] == 42
+        assert result["id"] == 12345
+        assert result["title"] == "Test Group"
+        assert result["type"] == "group"
+        assert result["member_count"] == 42
 
     @pytest.mark.asyncio
     async def test_ensure_channel_registered(self, bot_service, mock_db):
         """Test channel auto-registration."""
         # Get the mock connection from the context manager
         mock_conn = mock_db.get_connection.return_value.__enter__.return_value
-        mock_conn.execute.return_value.fetchone.return_value = None  # No existing channel
+        mock_conn.execute.return_value.fetchone.return_value = (
+            None  # No existing channel
+        )
 
         chat = Mock()
         chat.id = 12345
@@ -246,8 +249,11 @@ class TestAutoRegistrationHandler:
         context.bot = Mock()
         context.bot.send_message = AsyncMock()
 
-        with patch.object(handler, '_create_new_channel', new_callable=AsyncMock) as mock_create, \
-             patch.object(handler, '_get_existing_channel', return_value=None):
+        with patch.object(
+            handler, "_create_new_channel", new_callable=AsyncMock
+        ) as mock_create, patch.object(
+            handler, "_get_existing_channel", return_value=None
+        ):
 
             await handler.handle_chat_member_update(update, context)
 
@@ -272,7 +278,9 @@ class TestAutoRegistrationHandler:
 
         context = Mock()
 
-        with patch.object(handler, '_unregister_channel', new_callable=AsyncMock) as mock_unreg:
+        with patch.object(
+            handler, "_unregister_channel", new_callable=AsyncMock
+        ) as mock_unreg:
             await handler.handle_chat_member_update(update, context)
 
             mock_unreg.assert_called_once()
