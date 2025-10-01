@@ -73,6 +73,7 @@ class TestDatabaseSchema:
             "feeds",
             "processing_results",
             "topics",
+            "user_subscriptions",  # Added for SaaS pricing feature
         ]
         assert set(tables) == set(expected_tables)
 

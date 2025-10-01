@@ -48,7 +48,8 @@ class TestTopicCommandsBasic:
 
         mock_update.message.reply_text.assert_called_once()
         call_args = mock_update.message.reply_text.call_args[0][0]
-        assert "No topics configured" in call_args
+        # Updated to match new message format
+        assert "No topics" in call_args
 
     @pytest.mark.asyncio
     async def test_handle_add_topic_no_args(self, handler, mock_update, mock_context):

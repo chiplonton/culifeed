@@ -321,8 +321,8 @@ class TestRetryLogic:
         with pytest.raises(ConnectionError):
             retry_manager.retry_sync(test_function, circuit_breaker_key="recovery_test")
 
-        # Wait for recovery timeout
-        time.sleep(0.2)
+        # Wait for recovery timeout (0.11s to ensure 0.1s timeout passes)
+        time.sleep(0.11)
 
         # Should allow execution and succeed
         result = retry_manager.retry_sync(
