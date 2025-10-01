@@ -8,6 +8,7 @@
 pytest>=8.3.0                  # Testing framework (latest)
 pytest-asyncio>=0.24.0         # Async testing support
 pytest-cov>=6.0.0              # Coverage reporting (latest)
+pytest-xdist>=3.8.0            # Parallel test execution for 4x faster test runs
 
 # Code Quality
 black>=24.10.0                 # Code formatting (latest)

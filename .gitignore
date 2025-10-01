@@ -276,3 +276,4 @@ test_outputs/
 *.pstats
 profile_output/
 scripts/*.py
+coverage.json

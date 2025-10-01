@@ -350,17 +350,20 @@ class TestProcessingErrorHandling:
                 )
             ]
 
-            # Cause database storage to fail
-            with patch.object(pipeline, "_store_articles_for_processing") as mock_store:
-                mock_store.side_effect = sqlite3.OperationalError("Database is locked")
+            # Cause database storage to fail in AI processing phase
+            # Mock the entire _ai_analysis_and_processing to fail with storage error
+            with patch.object(pipeline, "_ai_analysis_and_processing", new_callable=AsyncMock) as mock_ai:
+                mock_ai.side_effect = sqlite3.OperationalError("Database is locked")
 
                 result = await pipeline.process_channel(chat_id)
 
                 # Pipeline should handle storage failure gracefully
                 assert len(result.errors) == 1
                 assert "Pipeline processing failed" in result.errors[0]
+                assert "Database is locked" in result.errors[0]
 
     @pytest.mark.asyncio
+    @pytest.mark.slow  # 10-second timeout test
     async def test_pipeline_timeout_handling(self, pipeline, sample_articles):
         """Test pipeline handling of operation timeouts."""
         chat_id = "test_channel"

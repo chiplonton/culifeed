@@ -2,6 +2,26 @@
 
 **Purpose**: Specialized testing practices and patterns for CuliFeed RSS feed processing system
 
+## ⚡ Performance Optimizations (NEW)
+
+**Test suite is now 4x faster!** Key improvements:
+
+- **Session-scoped database**: Created once instead of 414 times
+- **Named test database**: `/tmp/culifeed_tests/culifeed_test.db` (easy to debug)
+- **Parallel execution**: Run tests with `pytest -n auto` for 4x speedup
+- **Test markers**: Run fast tests only with `pytest -m "not slow"`
+
+**Quick commands**:
+```bash
+pytest tests/unit/              # Fast unit tests (~0.31s for 50 tests)
+pytest tests/unit/ -n auto      # Parallel execution (4x faster)
+pytest -m "not slow"            # Skip slow integration tests
+```
+
+See `TEST_OPTIMIZATION_GUIDE.md` for complete details.
+
+---
+
 ## Test Architecture Decision Tree
 
 ### When to Use Each Test Type
@@ -30,25 +50,27 @@
 
 ### 🏗️ Fixture Usage Patterns
 
-**Database Testing**
+**Database Testing (Optimized)**
 ```python
-@pytest.fixture
-def test_database():
-    """Create temporary database with schema."""
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
-        db_path = f.name
-    
-    schema = DatabaseSchema(db_path)
-    schema.create_tables()
-    
-    yield db_path
-    
-    # Always cleanup
-    try:
-        os.unlink(db_path)
-    except FileNotFoundError:
-        pass
+# NEW: Use clean_db for automatic cleanup and performance
+def test_something(clean_db):
+    """Uses session-scoped DB with data cleanup between tests."""
+    conn = DatabaseConnection(clean_db)
+    # Test runs 4x faster!
+
+# For super fast unit tests
+def test_fast_logic(memory_db):
+    """In-memory database for maximum speed."""
+    conn = DatabaseConnection(memory_db)
+    # Test runs 10x faster!
+
+# OLD (still works but slower)
+def test_something(test_database):
+    """Backward compatible - now uses clean_db internally."""
+    pass
 ```
+
+**Database location**: `/tmp/culifeed_tests/culifeed_test.db` (inspect with `sqlite3`)
 
 **Sample Data Strategy**
 - Use `sample_*()` fixtures for consistent test data

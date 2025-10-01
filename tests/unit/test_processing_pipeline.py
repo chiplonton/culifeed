@@ -256,8 +256,45 @@ class TestProcessingPipeline:
         pipeline.article_processor = mock_components["article_processor"]
         pipeline.pre_filter = mock_components["pre_filter"]
 
-        # Mock AI manager for unit tests
+        # Mock AI manager for unit tests with AsyncMock for async methods
         mock_ai_manager = Mock()
+
+        # Mock async methods
+        from culifeed.ai.providers.base import AIResult
+
+        mock_ai_manager.analyze_relevance = AsyncMock(
+            return_value=AIResult(
+                success=True,
+                relevance_score=0.85,
+                confidence=0.9,
+                reasoning="Test AI analysis",
+                provider="test_provider",
+            )
+        )
+
+        mock_ai_manager.generate_summary = AsyncMock(
+            return_value=AIResult(
+                success=True,
+                relevance_score=1.0,
+                confidence=0.9,
+                summary="Test summary",
+                provider="test_provider",
+            )
+        )
+
+        # Mock sync fallback method (returns AIResult like the real method)
+        from culifeed.ai.providers.base import AIResult as FallbackResult
+
+        mock_ai_manager._keyword_fallback_analysis = Mock(
+            return_value=FallbackResult(
+                success=True,
+                relevance_score=0.65,
+                confidence=0.5,
+                reasoning="Keyword fallback",
+                provider="keyword_backup",
+            )
+        )
+
         pipeline.ai_manager = mock_ai_manager
 
         return pipeline

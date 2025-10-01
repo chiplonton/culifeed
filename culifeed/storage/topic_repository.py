@@ -48,8 +48,9 @@ class TopicRepository:
                 cursor = conn.execute(
                     """
                     INSERT INTO topics (chat_id, name, keywords, exclude_keywords, 
-                                      confidence_threshold, created_at, last_match_at, active)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                      confidence_threshold, created_at, last_match_at, active, 
+                                      telegram_user_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         topic.chat_id,
@@ -60,6 +61,7 @@ class TopicRepository:
                         topic.created_at,
                         topic.last_match_at,
                         topic.active,
+                        topic.telegram_user_id,
                     ),
                 )
                 conn.commit()
